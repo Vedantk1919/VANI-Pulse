@@ -1,0 +1,15 @@
+# environment
+.venv/
+__pycache__/
+*.pyc
+
+# IndiaMART data never leaves the premises: datasets, derived features,
+# trained models and generated outputs (per-seller plans contain seller data)
+data/
+models/
+outputs/*
+!outputs/vani_agent_prompt_template.md
+*.csv
+*.parquet
+*.zip
+*.log

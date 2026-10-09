@@ -1,0 +1,10 @@
+altair>=5
+catboost>=1.2
+lightgbm>=4.3
+numpy>=1.26
+pandas>=2.2
+pyarrow>=15
+requests>=2.31
+scikit-learn>=1.4
+streamlit>=1.40
+xgboost>=2.0
