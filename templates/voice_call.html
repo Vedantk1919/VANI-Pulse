@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VANI voice call</title>
+<style>
+  :root { --bg:#f6f8fb; --card:#ffffff; --ink:#14213d; --muted:#5b6778; --line:#d9e0ea; --navy:#1f3a5f;
+          --amber:#e89f2e; --teal:#1c7c7d; --seller:#eef2f6; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1624; --card:#172133; --ink:#e7edf6;
+          --muted:#9aa8bc; --line:#2a3850; --navy:#8fb3e0; --seller:#1e2b42; --err:#ff8a80; } }
+  :root[data-theme="dark"] { --bg:#0f1624; --card:#172133; --ink:#e7edf6; --muted:#9aa8bc; --line:#2a3850;
+          --navy:#8fb3e0; --seller:#1e2b42; --err:#ff8a80; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:16px; }
+  .top { display:flex; gap:16px; align-items:center; flex-wrap:wrap; background:var(--card); border:1px solid var(--line);
+         border-radius:14px; padding:14px 16px; }
+  .orb { width:64px; height:64px; border-radius:50%; flex:none; background:var(--line); display:grid; place-items:center;
+         font-size:26px; transition:background .2s, box-shadow .2s; }
+  .orb.listening { background:color-mix(in srgb, var(--teal) 25%, var(--card)); }
+  .orb.speaking  { background:var(--teal); box-shadow:0 0 0 8px color-mix(in srgb, var(--teal) 25%, transparent); }
+  .orb.thinking  { background:color-mix(in srgb, var(--amber) 35%, var(--card)); animation:pulse 1s infinite; }
+  .orb.vani      { background:var(--amber); box-shadow:0 0 0 8px color-mix(in srgb, var(--amber) 25%, transparent); }
+  @keyframes pulse { 50% { opacity:.55; } }
+  .status { flex:1; min-width:200px; }
+  .status b { font-size:17px; }
+  .status small { display:block; color:var(--muted); }
+  .meter { height:6px; background:var(--line); border-radius:3px; margin-top:8px; overflow:hidden; }
+  .meter i { display:block; height:100%; width:0; background:var(--teal); transition:width .08s; }
+  button { font:inherit; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink);
+           padding:9px 14px; cursor:pointer; }
+  button.primary { background:var(--navy); color:var(--card); border-color:var(--navy); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .glid { margin-top:12px; }
+  .glid input { font:inherit; padding:8px 10px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink); }
+  #log { margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+  .msg { max-width:80%; padding:9px 13px; border-radius:12px; background:var(--card); border:1px solid var(--line); }
+  .msg.seller { align-self:flex-end; background:var(--seller); }
+  .msg .who { font-size:12px; color:var(--muted); }
+  .err { color:var(--err); margin-top:8px; }
+  .hint { color:var(--muted); font-size:13px; margin-top:10px; }
+  label.opt { color:var(--muted); font-size:13px; display:flex; gap:6px; align-items:center; }
+  @media (max-width:560px) { .msg { max-width:95%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div id="orb" class="orb">📞</div>
+    <div class="status">
+      <b id="state">Ready</b>
+      <small id="who">VANI · hands-free</small>
+      <div class="meter"><i id="lvl"></i></div>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">▶ Start call</button>
+      <button id="end" disabled>■ End</button>
+    </div>
+  </div>
+  <div id="glidbox" class="glid row" hidden>
+    <input id="glid" placeholder="Seller GLID" inputmode="numeric" size="14">
+    <input id="company" placeholder="Company name (optional)" size="24">
+    <button id="load">Generate</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label class="opt"><input type="checkbox" id="barge" checked> Let me interrupt VANI</label>
+    <span id="lat" class="hint" style="margin:0"></span>
+  </div>
+  <div id="err" class="err"></div>
+  <div id="log"></div>
+  <div class="hint">Just talk. VANI hears when you start and stop. Use headphones for the cleanest interruptions.
+    The microphone works on <b>localhost</b> (or https).</div>
+</div>
+<script>
+const qs = new URLSearchParams(location.search);
+let token = window.VANI_TOKEN || qs.get("t");          // set when embedded in the dashboard
+const $ = id => document.getElementById(id);
+const API = window.VANI_API || location.origin;
+let ctx, stream, proc, state = "idle", player = null;
+let floor = 0.01, voicedMs = 0, silenceMs = 0, turnMs = 0, bargeMs = 0, chunks = [], preroll = [];
+const PREROLL_MS = 700, END_SILENCE_MS = 850, MIN_VOICED_MS = 350, MAX_TURN_MS = 15000;
+
+function setState(s, label) {
+  state = s;
+  $("orb").className = "orb " + s;
+  $("orb").textContent = {listening:"👂", speaking:"🗣", thinking:"…", vani:"🔊", idle:"📞"}[s] || "📞";
+  $("state").textContent = label || {listening:"Listening… just talk", speaking:"You're speaking",
+    thinking:"VANI is thinking", vani:"VANI is speaking", idle:"Call ended"}[s];
+}
+function add(who, text, note) {
+  const d = document.createElement("div");
+  d.className = "msg " + (who === "VANI" ? "vani" : "seller");
+  d.innerHTML = `<div class="who">${who === "VANI" ? "📞 VANI" : "🧑‍💼 You"}${note ? " · " + note : ""}</div>`;
+  d.appendChild(document.createTextNode(text));
+  $("log").appendChild(d);
+  d.scrollIntoView({block:"nearest", behavior:"smooth"});
+}
+async function post(path, body, type) {
+  const r = await fetch(`${API}${path}${token ? "?t=" + token : ""}`, {method:"POST",
+    headers:{"Content-Type": type || "application/json"}, body});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function play(b64) {
+  return new Promise(res => {
+    if (!b64) return res();
+    player = new Audio("data:audio/wav;base64," + b64);
+    player.onended = player.onpause = () => { player = null; res(); };
+    player.play().catch(() => { player = null; res(); });
+  });
+}
+async function vaniSays(j) {
+  add("VANI", j.reply);
+  setState("vani");
+  // later phrases are voiced in parallel while the first one plays
+  const later = (j.rest || []).map(t => post("/api/say", JSON.stringify({text: t})).then(r => r.audio).catch(() => null));
+  await play(j.audio);
+  for (const p of later) {
+    if (state !== "vani") break;                    // interrupted
+    const a = await p;
+    if (state !== "vani") break;
+    await play(a);
+  }
+  if (state === "vani") setState("listening");
+}
+
+function wav16k(bufs, rate) {
+  const n = bufs.reduce((a, b) => a + b.length, 0), all = new Float32Array(n);
+  let o = 0; for (const b of bufs) { all.set(b, o); o += b.length; }
+  const ratio = rate / 16000, len = Math.floor(n / ratio), pcm = new Int16Array(len);
+  for (let i = 0; i < len; i++) {
+    const s = Math.max(-1, Math.min(1, all[Math.floor(i * ratio)]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const v = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const w = (p, s) => [...s].forEach((c, i) => v.setUint8(p + i, c.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true);
+  v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data");
+  v.setUint32(40, pcm.length * 2, true);
+  new Int16Array(v.buffer, 44).set(pcm);
+  return new Blob([v.buffer], {type:"audio/wav"});
+}
+
+async function sendTurn(bufs) {
+  setState("thinking");
+  try {
+    const j = await post("/api/turn", wav16k(bufs, ctx.sampleRate), "audio/wav");
+    if (!j.reply) { setState("listening", "Didn't catch that, say it again"); return; }
+    add("SELLER", j.heard, j.lang);
+    if (j.ms) $("lat").textContent = `last turn: hearing ${j.ms.stt} ms · thinking ${j.ms.llm} ms · first words ${j.ms.tts} ms`;
+    await vaniSays(j);
+    if (j.tags && j.tags.length) $("who").textContent += " · outcome: " + j.tags.join(", ");
+  } catch (e) { $("err").textContent = e.message; setState("listening"); }
+}
+
+function onAudio(ev) {
+  const x = ev.inputBuffer.getChannelData(0), buf = new Float32Array(x);
+  const ms = 1000 * x.length / ctx.sampleRate;
+  let sum = 0; for (let i = 0; i < x.length; i++) sum += x[i] * x[i];
+  const rms = Math.sqrt(sum / x.length);
+  $("lvl").style.width = Math.min(100, rms * 900) + "%";
+  if (state === "listening") {
+    preroll.push(buf); while (preroll.length * ms > PREROLL_MS) preroll.shift();
+    const thr = Math.max(0.012, floor * 3.5);
+    if (rms > thr) { voicedMs += ms; if (voicedMs >= 120) { chunks = preroll.slice(); preroll = [];
+      turnMs = voicedMs; silenceMs = 0; setState("speaking"); } }
+    else { voicedMs = 0; floor = 0.95 * floor + 0.05 * rms; }
+  } else if (state === "speaking") {
+    chunks.push(buf); turnMs += ms;
+    const thr = Math.max(0.012, floor * 3.5) * 0.6;
+    if (rms > thr) { silenceMs = 0; voicedMs += ms; } else silenceMs += ms;
+    if (silenceMs >= END_SILENCE_MS || turnMs >= MAX_TURN_MS) {
+      const voiced = voicedMs, b = chunks; chunks = []; voicedMs = 0;
+      if (voiced < MIN_VOICED_MS) setState("listening"); else sendTurn(b);
+    }
+  } else if (state === "vani" && $("barge").checked) {
+    preroll.push(buf); while (preroll.length * ms > PREROLL_MS) preroll.shift();
+    if (rms > Math.max(0.05, floor * 8)) bargeMs += ms; else bargeMs = 0;
+    if (bargeMs >= 250) {                           // seller talks over VANI: stop her and listen
+      bargeMs = 0; if (player) player.pause();
+      chunks = preroll.slice(); preroll = []; voicedMs = turnMs = 250; silenceMs = 0; setState("speaking", "You interrupted, go on");
+    }
+  }
+}
+
+async function start() {
+  $("err").textContent = "";
+  try {
+    if (!token) throw new Error("Enter a GLID and press Generate first.");
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    proc = ctx.createScriptProcessor(2048, 1, 1);
+    const mute = ctx.createGain(); mute.gain.value = 0;
+    src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    proc.onaudioprocess = onAudio;
+    $("log").innerHTML = ""; $("start").disabled = true; $("end").disabled = false;
+    setState("thinking", "Connecting…");
+    const j = await post("/api/start", "{}");
+    $("who").textContent = `VANI · GLID ${j.glid} · ${j.company} · starts in ${j.lang}`;
+    await vaniSays(j);
+  } catch (e) {
+    $("err").textContent = e.name === "NotAllowedError" ? "Microphone blocked. Allow it, or open this page on localhost." : e.message;
+    stop(true);
+  }
+}
+function stop(silent) {
+  if (player) player.pause();
+  if (proc) proc.disconnect(); if (stream) stream.getTracks().forEach(t => t.stop()); if (ctx) ctx.close();
+  proc = stream = ctx = null; $("start").disabled = false; $("end").disabled = true;
+  $("start").textContent = "↺ New call"; if (!silent) setState("idle"); else setState("idle", "Ready");
+}
+$("start").onclick = start;
+$("end").onclick = () => stop(false);
+if (!token) {
+  $("glidbox").hidden = false;
+  if (qs.get("glid")) $("glid").value = qs.get("glid");
+  $("load").onclick = async () => {
+    $("err").textContent = ""; $("load").disabled = true; $("load").textContent = "Generating…";
+    try { token = (await post("/api/new", JSON.stringify({glid: $("glid").value, company: $("company").value}))).token;
+          $("who").textContent = `VANI · GLID ${$("glid").value} · prompt generated, press Start`; }
+    catch (e) { $("err").textContent = e.message; }
+    $("load").disabled = false; $("load").textContent = "Generate";
+  };
+}
+</script>
+</body>
+</html>

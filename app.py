@@ -811,6 +811,13 @@ def page_talk():
 
 
 # ------------------------------------------------------------------ 8. live GLID test (runtime)
+@st.cache_resource
+def voice_server():
+    """Hands-free call server (src/voice_server.py), started once inside this process."""
+    from src import voice_server as vs
+    return vs.start()
+
+
 def page_live():
     warm()
     from src import live_runtime as lr
@@ -900,6 +907,23 @@ def page_live():
     with t3:
         if not sarvam.available():
             st.warning("Set SARVAM_API_KEY before starting the dashboard.")
+        elif st.radio("Mode", ["🎧 Hands-free voice call", "⌨️ Push-to-talk & typing"], horizontal=True,
+                      key="live_mode", label_visibility="collapsed").startswith("🎧"):
+            from src import voice_server as vs
+            if not voice_server():
+                st.error(f"Voice server port {vs.PORT} is busy. Free it and reload.")
+            else:
+                key = (r["glid"], r["at"], r["company"])
+                if st.session_state.get("live_voice_key") != key:
+                    st.session_state["live_voice_tok"] = vs.register(r["sess"], r["company"], r["glid"])
+                    st.session_state["live_voice_key"] = key
+                tok = st.session_state["live_voice_tok"]
+                host = (st.context.headers.get("host") or "localhost").split(":")[0]
+                api = f"http://{host}:{vs.PORT}"
+                st.components.v1.html(vs.embed_html(tok, api), height=560, scrolling=True)
+                st.caption(f"Press **Start call** and just talk, no buttons between turns. VANI hears when you stop, "
+                           f"answers out loud, and stops if you talk over her. Mic needs **localhost**. "
+                           f"[Open in its own tab]({api}/?t={tok}) · Runs on Sarvam: {STT_MODEL} → {LLM_MODEL} → bulbul:v3.")
         else:
             conv = st.session_state.get("live_conv")
             x1, x2, x3 = st.columns([1.2, 1, 1])
