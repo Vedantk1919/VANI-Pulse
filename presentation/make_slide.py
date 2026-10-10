@@ -101,7 +101,7 @@ text(4.95, 5.25, 3.65, 0.6, [[("Trade-off: ", {"color": AMBER, "bold": True}),
 # validation (right column)
 box(9.1, 1.6, 3.73, 4.36, MIST, name="validation")
 text(9.3, 1.78, 3.4, 0.4, "How we validated", size=18, font=HEAD, bold=True, color=NAVY)
-val = [f"Time split: train Apr-Aug, test Sept (no shuffling; volume grew ~6.6×)",
+val = ["Time split: train Apr-Aug, test Sept (no shuffling; volume grew ~6.6×)",
        f"Real outcomes: best-scored slots beat worst by +{ev['first attempt Q5_vs_Q1_meeting_lift_pct']}% (first calls) and +{ev['retry Q5_vs_Q1_meeting_lift_pct']}% (retries), bootstrap CIs exclude 0",
        f"Off-policy IPS on retries: +{ips['lift_pct']}% (CI {ips['lift_ci95_pct'][0]} to {ips['lift_ci95_pct'][1]})",
        "Label check: 2.4% false meetings, flat by hour; AUC unchanged",

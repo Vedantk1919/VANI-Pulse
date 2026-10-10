@@ -15,5 +15,6 @@ if [ -f data/persona/incorrect_mf.parquet ] || compgen -G "data/persona/ps07_eva
 fi
 $PY -m src.windows           # brief outputs: confidence by history, window stability, off-policy IPS, 15-min by segment
 $PY -m src.analysis          # aggregates for the dashboard's analysis page
+$PY -c "from src import predict; predict.build_catalog()"   # seller catalogue for the Predict page
 $PY -m src.samples           # sample call plans + seller.md files
 $PY presentation/make_slide.py   # one-slide presentation

@@ -4,7 +4,6 @@ Pages follow the demo story: overview -> what the data says -> demo sellers (his
 before vs after, prompt) -> talk to VANI on Sarvam -> results and validation.
 """
 import json
-import os
 from datetime import datetime, time
 
 import altair as alt
@@ -34,14 +33,16 @@ def load_json(name):
 def warm():
     pg._attempts_by_seller(); pg._persona(); pg._model(); sm._timeline(); sm._profile(); sm._vani_dials()
     ds._persona_counts()
+    from src import predict as pr
+    pr.catalog()
     return True
 
 
 rep, mrep, ana, brief = load_json("backtest_report.json"), load_json("model_report.json"), load_json("analysis.json"), load_json("brief_report.json")
 
 # ------------------------------------------------------------------ sidebar: page + seller
-PAGES = ["1 · Overview", "2 · What the data says", "3 · Best time to call & 15-min rule", "4 · Demo sellers",
-         "5 · Talk to VANI (Sarvam)", "6 · Results & validation"]
+PAGES = ["1 · Overview", "2 · What the data says", "3 · Best time to call & 15-min rule", "4 · Predict for any GLID (live)",
+         "5 · Demo sellers", "6 · Talk to VANI (Sarvam)", "7 · Results & validation", "8 · 🧪 Live GLID test (runtime)"]
 qp = st.query_params                      # direct links: ?p=3&s=2 opens page 3 with demo seller 2
 page = st.sidebar.radio("Demo flow", PAGES, label_visibility="collapsed",
                         index=min(max(int(qp.get("p", 1)) - 1, 0), len(PAGES) - 1))
@@ -373,6 +374,146 @@ def page_best_time():
                           "shrunk to 0.57× (raw data: 0.05×), so this comparison favours the fixed rule")
 
 
+# ------------------------------------------------------------------ 4. predict for any GLID
+def page_predict():
+    warm()
+    from src import predict as pr
+    st.title("Predict the best time to call (live)")
+    st.markdown("##### Enter any seller GLID: the planner reads that seller's history and computes the plan right now.")
+    cat = pr.catalog()
+    n_tr = int((cat.in_training == "trained (Apr-Aug)").sum())
+    n_un = int((cat.in_training == "unseen (Sept only)").sum())
+    k = st.columns(3)
+    k[0].metric("Sellers in the data", f"{len(cat):,}")
+    k[1].metric("Model trained on (Apr–Aug dials)", f"{n_tr:,}")
+    k[2].metric("Never seen in training (Sept only)", f"{n_un:,}")
+    source("attempts", "sellers", extra="training split: Apr–Aug 2026; September held out")
+
+    left, right = st.columns([1, 1.25])
+    with right:
+        st.markdown("**Not sure which GLID? Pick one**")
+        t1, t2 = st.tabs(["Suggestions", "Browse all sellers"])
+        with t1:
+            sug = pr.suggestions(4)
+            kind = st.selectbox("Kind of seller", list(dict.fromkeys(sug.kind)), key="sug_kind")
+            show = sug[sug.kind == kind].drop(columns="kind")
+            ev = st.dataframe(show if not st.session_state.get("mask") else show.drop(columns=["category"]),
+                              width="stretch", hide_index=True, on_select="rerun", selection_mode="single-row", key="sug_tbl")
+            if ev.selection.rows:
+                st.session_state["predict_glid"] = int(show.iloc[ev.selection.rows[0]].glid)
+            st.caption("Click a row to use that GLID.")
+        with t2:
+            f1, f2, f3 = st.columns(3)
+            tr = f1.selectbox("Training", ["any", "trained (Apr-Aug)", "unseen (Sept only)"])
+            stt = f2.selectbox("State", ["any"] + sorted(cat.state.unique()))
+            bt = f3.selectbox("Business type", ["any"] + sorted(cat.business_type.unique()))
+            f4, f5 = st.columns(2)
+            mind = f4.slider("Min dials (Apr–Aug)", 0, 20, 0)
+            mem = f5.checkbox("Only sellers with memory (Global Context)")
+            q = cat
+            if tr != "any":
+                q = q[q.in_training == tr]
+            if stt != "any":
+                q = q[q.state == stt]
+            if bt != "any":
+                q = q[q.business_type == bt]
+            q = q[q.dials_apr_aug >= mind]
+            if mem:
+                q = q[q.memory]
+            st.caption(f"{len(q):,} sellers match; showing 100.")
+            view = q.head(100)[["glid", "in_training", "dials_apr_aug", "dials_sept", "pickup_rate", "meetings", "state",
+                                "business_type", "turnover", "category", "memory"]]
+            ev2 = st.dataframe(view if not st.session_state.get("mask") else view.drop(columns=["category"]),
+                               width="stretch", hide_index=True, height=300, on_select="rerun",
+                               selection_mode="single-row", key="cat_tbl")
+            if ev2.selection.rows:
+                st.session_state["predict_glid"] = int(view.iloc[ev2.selection.rows[0]].glid)
+        source("attempts", "sellers", "gc")
+    with left:
+        with st.form("predict_form"):
+            g_in = st.number_input("Seller GLID", value=int(st.session_state.get("predict_glid", 0)), step=1)
+            live = st.radio("Plan as of", ["Now (live clock)", "A past moment"], horizontal=True)
+            c1, c2 = st.columns(2)
+            d_ = c1.date_input("Date", value=datetime(2026, 9, 15).date())
+            t_ = c2.time_input("Time", value=time(11, 0))
+            go = st.form_submit_button("⚡ Predict best time to call", type="primary")
+        if go and g_in:
+            at_ = datetime.now().replace(second=0, microsecond=0) if live.startswith("Now") else datetime.combine(d_, t_)
+            if int(g_in) not in pg._attempts_by_seller():
+                st.session_state.pop("predict_result", None)
+                st.error(f"GLID {g_in} is not in our data (no dials and no seller profile), so there is nothing to base a "
+                         "prediction on. Pick a GLID from the lists on the right.")
+                return
+            try:
+                st.session_state["predict_result"] = pr.predict(int(g_in), at_)
+            except Exception as e:
+                st.error(f"Could not predict for GLID {g_in}: {e}")
+    r = st.session_state.get("predict_result")
+    if not r:
+        st.info("Enter a GLID (or pick one on the right) and press **Predict**.")
+        return
+    st.divider()
+    o, w, c = r["out"], r["out"]["when"], r["catalog"]
+    st.subheader(mask(f"GLID {r['glid']}", r["glid"], r["at"]) + f" · as of {r['at']:%a %d %b %Y %H:%M}")
+    clean = lambda v: "-" if v is None or str(v) in ("nan", "NA", "None", "") else v
+    st.caption(f"{c.get('in_training', 'not in data')} · dials Apr–Aug {c.get('dials_apr_aug', 0)} · Sept {c.get('dials_sept', 0)} · "
+               f"pickup {clean(c.get('pickup_rate'))} · meetings {c.get('meetings', 0)} · {clean(c.get('state'))} · "
+               f"{clean(c.get('business_type'))} · turnover {clean(c.get('turnover'))} · memory: {'yes' if c.get('memory') else 'no'}")
+    slot = datetime.strptime(w["slot"], "%a %d %b %Y, %I:%M %p").strftime("%a %d %b, %H:%M") if w["slot"] else "—"
+    kpi_row([("Next action", w["action"].upper(), None), ("When", slot, None),
+             ("P(answer)", f"{w['p_answer']:.0%}" if w["p_answer"] is not None else "—", None),
+             ("P(meeting)", f"{w['p_meeting']:.1%}" if w["p_meeting"] is not None else "—", None),
+             ("Lead tier", o.get("tier") or "—", None),
+             ("Computed in", f"{r['timing']['total_ms']:.0f} ms", None)], widths=[1, 1.7, 1, 1, 0.8, 1])
+    st.info(f"**Why:** {w['reason']}")
+    source("model", "attempts", "sellers", extra="history up to the 'as of' moment only")
+    c1, c2 = st.columns([1.35, 1])
+    with c1:
+        grid = r["grid"].copy()
+        grid["hour_label"] = grid.hour.map(lambda h: f"{h}:00")
+        hm = alt.Chart(grid).mark_rect().encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)], title="hour of day"),
+            y=alt.Y("day:O", sort=DAY_NAMES, title=None, axis=alt.Axis(labelOverlap=False)),
+            color=alt.Color("p_meeting:Q", scale=alt.Scale(scheme="blues"), legend=alt.Legend(format=".1%", title="P(meeting)")),
+            tooltip=["window", alt.Tooltip("p_meeting:Q", format=".2%"), alt.Tooltip("p_answer:Q", format=".0%"), "rank"])
+        ring = alt.Chart(grid[grid["rank"] <= 3]).mark_rect(fill=None, stroke=AMBER, strokeWidth=3).encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)]), y=alt.Y("day:O", sort=DAY_NAMES))
+        st.altair_chart((hm + ring).properties(height=300, title="Best weekly windows for this seller (orange = top 3)"),
+                        width="stretch")
+        st.caption(f"Confidence: {r['meta']['confidence']} ({r['meta']['past_dials']} past dials)")
+    with c2:
+        st.markdown("**Top 5 windows**")
+        st.dataframe(grid.head(5)[["rank", "window", "p_meeting", "p_answer"]].style.format({"p_meeting": "{:.2%}", "p_answer": "{:.0%}"}),
+                     width="stretch", hide_index=True)
+        st.markdown("**If the call isn't answered: retry ladder**")
+        lad = pd.DataFrame(r["ladder"]).reindex(columns=["attempt", "action", "when", "hours_after_previous", "p_meeting", "reason"])
+        calls, stops = lad[lad.action == "CALL"], lad[lad.action == "STOP"]
+        if len(calls):
+            st.dataframe(calls.drop(columns=["action", "reason"]).rename(columns={"hours_after_previous": "hours after previous"})
+                         .astype({"hours after previous": float, "p_meeting": float})
+                         .style.format({"p_meeting": "{:.2%}", "hours after previous": "{:.1f}"}), width="stretch", hide_index=True)
+            if len(stops):
+                st.caption(f"Then stop: {stops.reason.iloc[0]}")
+        else:
+            st.warning(f"No calls planned: {lad.reason.iloc[0]}")
+    h = r["history"]
+    with st.expander(f"History used for this prediction ({len(h)} dials before {r['at']:%d %b %Y})"):
+        if len(h):
+            st.dataframe(h[["call_start_time", "call_attempt_count", "disposition_label", "lead_call_duration"]].tail(15)
+                         .rename(columns={"call_start_time": "When", "call_attempt_count": "Attempt", "disposition_label": "Outcome",
+                                          "lead_call_duration": "Talk (s)"}), width="stretch", hide_index=True)
+        else:
+            st.caption("No past dials: segment patterns only.")
+        source("attempts")
+    with st.expander("VANI prompt block for this seller"):
+        st.code(mask(o["vani_prompt_block"], r["glid"], r["at"]), language="markdown")
+        if o.get("seller_md"):
+            st.markdown(mask(o["seller_md"], r["glid"], r["at"]))
+    t = r["timing"]
+    st.caption(f"Timing: history {t['history_ms']:.0f} ms · plan + prompt {t['plan_ms']:.0f} ms · weekly windows + retry ladder "
+               f"{t['windows_ms']:.0f} ms · total {t['total_ms']:.0f} ms (data stays loaded in memory).")
+
+
 # ------------------------------------------------------------------ 3. demo sellers
 def page_demo():
     warm()
@@ -669,6 +810,166 @@ def page_talk():
                    f"Language is re-detected on every seller turn.")
 
 
+# ------------------------------------------------------------------ 8. live GLID test (runtime)
+def page_live():
+    warm()
+    from src import live_runtime as lr
+    from src import sarvam_live as sl
+    from src.vani_engine import VaniConversation, LLM_MODEL, STT_MODEL
+    st.title("🧪 Live GLID test (runtime)")
+    st.markdown("##### One GLID in → best time to call, seller memory, VANI prompt and a live conversation, "
+                "all generated now. Nothing is pre-built per seller.")
+    with st.form("live_form"):
+        c1, c2, c3 = st.columns([1.2, 1.3, 1.5])
+        g = c1.number_input("Seller GLID", value=int(st.session_state.get("live_glid", 2000059)), step=1)
+        when = c2.radio("Plan as of", ["Now (live clock)", "A past moment"], horizontal=True)
+        d_, t_ = c3.columns(2)
+        dd = d_.date_input("Date", value=datetime(2026, 9, 18).date())
+        tt = t_.time_input("Time", value=time(19, 38))
+        comp = st.text_input("Company name VANI uses (blank = from seller data, else 'aapki company')", value="")
+        go = st.form_submit_button("⚡ Generate everything now", type="primary")
+    if go:
+        if int(g) not in pg._attempts_by_seller():
+            st.error(f"GLID {g} is not in our data (no dials, no profile). Try one from page 4's lists.")
+            return
+        at_ = datetime.now().replace(second=0, microsecond=0) if when.startswith("Now") else datetime.combine(dd, tt)
+        with st.spinner("Generating plan, memory and prompt…"):
+            st.session_state["live_res"] = lr.run(int(g), at_, comp.strip() or None)
+        st.session_state["live_glid"] = int(g)
+        st.session_state.pop("live_conv", None)
+    r = st.session_state.get("live_res")
+    if not r:
+        st.info("Enter a GLID and press **Generate everything now**. Any of the 148,833 sellers works; "
+                "page 4 lists trained and unseen sellers to try.")
+        return
+    p, o, w = r["predict"], r["predict"]["out"], r["predict"]["out"]["when"]
+    c = p["catalog"]
+    st.caption(mask(f"GLID {r['glid']}", r["glid"], r["at"]) + f" · as of {r['at']:%a %d %b %Y %H:%M} · "
+               f"{c.get('in_training', '-')} · {c.get('state', '-')} · {c.get('business_type', '-')} · "
+               f"memory: {'yes' if c.get('memory') else 'no'} · generated in {r['timing']['total_ms']} ms")
+    t1, t2, t3, t4 = st.tabs(["⏰ Best time to call", "🧠 Memory & prompt", "🎙 Talk to VANI", "🔗 Test on Sarvam platform"])
+    with t1:
+        slot = datetime.strptime(w["slot"], "%a %d %b %Y, %I:%M %p").strftime("%a %d %b, %H:%M") if w["slot"] else "—"
+        kpi_row([("Next action", w["action"].upper(), None), ("When", slot, None),
+                 ("P(answer)", f"{w['p_answer']:.0%}" if w["p_answer"] is not None else "—", None),
+                 ("P(meeting)", f"{w['p_meeting']:.1%}" if w["p_meeting"] is not None else "—", None),
+                 ("Lead tier", o.get("tier") or "—", None)], widths=[1, 1.7, 1, 1, 0.8])
+        st.info(f"**Why:** {w['reason']}")
+        grid = p["grid"].copy()
+        grid["hour_label"] = grid.hour.map(lambda h: f"{h}:00")
+        a1, a2 = st.columns([1.35, 1])
+        with a1:
+            hm = alt.Chart(grid).mark_rect().encode(
+                x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)], title="hour of day"),
+                y=alt.Y("day:O", sort=DAY_NAMES, title=None, axis=alt.Axis(labelOverlap=False)),
+                color=alt.Color("p_meeting:Q", scale=alt.Scale(scheme="blues"), legend=alt.Legend(format=".1%", title="P(meeting)")),
+                tooltip=["window", alt.Tooltip("p_meeting:Q", format=".2%"), alt.Tooltip("p_answer:Q", format=".0%")])
+            ring = alt.Chart(grid[grid["rank"] <= 3]).mark_rect(fill=None, stroke=AMBER, strokeWidth=3).encode(
+                x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)]), y=alt.Y("day:O", sort=DAY_NAMES))
+            st.altair_chart((hm + ring).properties(height=300, title="Best weekly windows (orange = top 3)"), width="stretch")
+        with a2:
+            st.markdown("**Top 5 windows**")
+            st.dataframe(grid.head(5)[["rank", "window", "p_meeting", "p_answer"]].style.format({"p_meeting": "{:.2%}", "p_answer": "{:.0%}"}),
+                         width="stretch", hide_index=True)
+            lad = pd.DataFrame(p["ladder"]).reindex(columns=["attempt", "action", "when", "hours_after_previous", "p_meeting", "reason"])
+            calls = lad[lad.action == "CALL"]
+            st.markdown("**If not answered: retry ladder**")
+            if len(calls):
+                st.dataframe(calls[["attempt", "when", "hours_after_previous", "p_meeting"]].astype({"hours_after_previous": float, "p_meeting": float})
+                             .style.format({"p_meeting": "{:.2%}", "hours_after_previous": "{:.1f}"}), width="stretch", hide_index=True)
+            else:
+                st.warning(f"No calls planned: {lad.reason.iloc[0]}")
+        source("model", "attempts", "sellers", extra="computed now from history up to the 'as of' moment")
+    with t2:
+        b1, b2 = st.columns(2)
+        with b1:
+            st.markdown("**seller.md (generated now)**")
+            if r["seller_md"]:
+                st.markdown(mask(r["seller_md"], r["glid"], r["at"]))
+                source("gc", "attempts")
+            else:
+                st.caption("Not in the 5,000-seller Global Context sample: no cross-channel memory, so the prompt uses "
+                           "call history, profile and segment rules only.")
+        with b2:
+            st.markdown("**Seller block (this seller's part of the prompt)**")
+            st.code(mask(r["sess"]["variables"]["seller_block"], r["glid"], r["at"]), language="markdown")
+        with st.expander("Full prompt VANI runs on (base prompt + seller block)"):
+            st.code(mask(r["full_prompt"], r["glid"], r["at"]), language="markdown")
+        st.download_button("Download full prompt (.md)", r["full_prompt"], file_name=f"vani_prompt_{r['glid']}.md")
+        source("persona", "sellers", "gc", extra="rules in src/prompt_gen.py; base prompt outputs/vani_agent_prompt_template.md")
+    with t3:
+        if not sarvam.available():
+            st.warning("Set SARVAM_API_KEY before starting the dashboard.")
+        else:
+            conv = st.session_state.get("live_conv")
+            x1, x2, x3 = st.columns([1.2, 1, 1])
+            spk = x3.toggle("🔊 Speak replies", value=True, key="live_speak")
+            if x1.button("▶ Start conversation" if conv is None else "↺ Restart", type="primary", key="live_start"):
+                conv = VaniConversation(r["sess"], r["company"])
+                st.session_state["live_conv"] = conv
+                if spk:
+                    st.session_state["live_audio"] = conv.speak(r["sess"]["greeting"])
+            if conv is not None:
+                x2.download_button("Save transcript", conv.transcript(), file_name=f"vani_live_{r['glid']}.txt")
+
+            def turn(text, lang=None):
+                try:
+                    with st.spinner("VANI is replying…"):
+                        rep = conv.send(text, lang)
+                        if spk:
+                            st.session_state["live_audio"] = conv.speak(rep)
+                except Exception as e:
+                    st.session_state["live_err"] = f"{type(e).__name__}: {e}"
+                st.rerun()
+
+            if st.session_state.get("live_err"):
+                st.error(st.session_state.pop("live_err"))
+            for who, text, lang in (conv.messages if conv else [("VANI", r["sess"]["greeting"], r["sess"]["language"])]):
+                with st.chat_message("assistant" if who == "VANI" else "user", avatar="📞" if who == "VANI" else "🧑‍💼"):
+                    st.write(mask(text, r["glid"], r["at"]))
+                    if who == "SELLER":
+                        st.caption(f"detected: {lang}")
+            if st.session_state.get("live_audio"):
+                st.audio(st.session_state.pop("live_audio"), format="audio/wav", autoplay=True)
+            if conv is None:
+                st.info("Press **▶ Start conversation**, then speak or type as the seller.")
+            else:
+                v = st.audio_input("🎙 Speak as the seller", key=f"live_mic_{r['glid']}_{len(conv.messages)}")
+                if v is not None:
+                    try:
+                        txt, code = VaniConversation.transcribe(v.getvalue())
+                    except Exception as e:
+                        st.error(f"Sarvam speech-to-text failed: {e}")
+                        txt = ""
+                    if txt.strip():
+                        turn(txt, code)
+                qc = st.columns(4)
+                for i, (label, line) in enumerate(sl.TEST_LINES):
+                    if qc[i % 4].button(label, key=f"live_q{i}"):
+                        turn(line)
+                said = st.chat_input("…or type as the seller", key="live_chat")
+                if said:
+                    turn(said)
+            st.caption(f"Runs now on Sarvam: {STT_MODEL} speech-to-text → {LLM_MODEL} with this seller's prompt → bulbul:v3 voice.")
+    with t4:
+        st.markdown(f"**One agent on Sarvam for every GLID:** `{lr.LIVE_AGENT_NAME}` (ID `{lr.LIVE_AGENT_ID}`)")
+        st.markdown("""
+Sarvam does not offer an API to edit agents with our key, so the generated prompt is handed to that one agent:
+
+1. Open **indus.sarvam.ai → Build → Agents → "VANI - Live runtime test (any GLID)" → Variables tab**.
+2. Paste the **company name** and the **seller block** below into the two variables (`company_name`, `seller_block`) and save.
+3. Click **Test agent** and talk to VANI by voice.
+
+*Or ask Claude in the editor: "push GLID … to the live Sarvam agent" — it updates the agent through the Sarvam connector in seconds.*""")
+        st.link_button("Open Sarvam (indus.sarvam.ai) ↗", "https://indus.sarvam.ai")
+        st.markdown("`company_name`")
+        st.code(r["company"], language=None)
+        st.markdown("`seller_block`")
+        st.code(r["sess"]["variables"]["seller_block"], language="markdown")
+    st.caption(f"Timing: plan + windows {r['timing']['plan_and_windows_ms']} ms · prompt {r['timing']['prompt_ms']} ms · "
+               f"total {r['timing']['total_ms']} ms")
+
+
 # ------------------------------------------------------------------ 5. results
 def page_results():
     st.title("Results & validation")
@@ -767,8 +1068,8 @@ def page_results():
             source("gc_eval", "gc", "attempts")
 
 
-{PAGES[0]: page_overview, PAGES[1]: page_analysis, PAGES[2]: page_best_time, PAGES[3]: page_demo,
- PAGES[4]: page_talk, PAGES[5]: page_results}[page]()
+{PAGES[0]: page_overview, PAGES[1]: page_analysis, PAGES[2]: page_best_time, PAGES[3]: page_predict,
+ PAGES[4]: page_demo, PAGES[5]: page_talk, PAGES[6]: page_results, PAGES[7]: page_live}[page]()
 st.sidebar.divider()
 with st.sidebar.expander("📁 Data sources"):
     for k, (name, what) in ds.SOURCES.items():

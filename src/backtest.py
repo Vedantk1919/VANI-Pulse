@@ -25,7 +25,6 @@ H = np.array(CALL_HOURS)
 def add_band_history(df):
     """Per-seller cumulative attempts/answers in every band, before each row."""
     df = df.sort_values(["fk_glusr_usr_id", "call_start_time"]).copy()
-    g = df.groupby("fk_glusr_usr_id", sort=False)
     for _, _, b in BANDS:
         is_b = (df.band.astype(str) == b).astype(int)
         df[f"bn_{b}"] = is_b.groupby(df.fk_glusr_usr_id).cumsum() - is_b

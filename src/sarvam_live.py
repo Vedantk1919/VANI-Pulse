@@ -74,7 +74,6 @@ def build_session(glid, at, company=None):
 
 
 def _config(sess, interaction):
-    from pydantic import SecretStr  # noqa: F401  (imported for the caller)
     from sarvam_conv_ai_sdk import InteractionConfig, InteractionType, TextToSpeechConfig, SpeechSettings
     from sarvam_conv_ai_sdk.messages.types import UserIdentifierType
     need = ["SARVAM_ORG_ID", "SARVAM_WORKSPACE_ID", "SARVAM_APP_ID", "SARVAM_API_KEY"]

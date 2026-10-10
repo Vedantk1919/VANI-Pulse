@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from .config import CALL_HOURS, BANDS, band_of
+from .config import CALL_HOURS, band_of
 
 MIN_GAP_HRS = 0.5
 MAX_DIALS_24H = 3

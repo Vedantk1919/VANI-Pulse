@@ -19,7 +19,6 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 from .config import CALL_HOURS, OUT_DIR, TEST_START, band_of
-from .features import hour_band
 from . import policy
 from . import prompt_gen as pg
 
@@ -32,7 +31,6 @@ def weekly_windows(glid, at=None, top=10):
     hist, profile, _ = pg.seller_context(glid, at)
     attempt_no, *_ = pg._episode_state(hist, at)
     monday = (at - timedelta(days=at.weekday())).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=7)
-    rows = []
     c = policy.build_candidates(hist, profile, monday, attempt_no, days=6)
     c = c[c.slot >= monday]
     p = pg._model().predict_slot(c)

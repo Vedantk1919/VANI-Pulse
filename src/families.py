@@ -2,7 +2,6 @@
 
 Used by model.py (production ensemble) and compare_models.py (bake-off).
 """
-from pathlib import Path
 
 import lightgbm as lgb
 import pandas as pd

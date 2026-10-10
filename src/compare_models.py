@@ -14,7 +14,6 @@ Run:  python -m src.compare_models
 import json
 import time
 
-import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, log_loss, brier_score_loss, average_precision_score
 

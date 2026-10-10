@@ -9,7 +9,7 @@ Run:  python -m src.prompt_gen <glid> [<glid> ...]      (writes outputs/plans/<g
 """
 import json
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import lru_cache
 
 import numpy as np

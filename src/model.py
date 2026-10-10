@@ -15,7 +15,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score, log_loss
 
 from .config import WORK_DIR, MODEL_DIR, OUT_DIR, TEST_START
-from .features import FEATURES, CAT_FEATURES
+from .features import CAT_FEATURES
 from .families import ENSEMBLE_MEMBERS, Ensemble
 
 TARGETS = {"answer": "ans", "meeting": "mf"}
