@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VANI live on Sarvam</title>
+<style>
+  :root { --bg:#f6f8fb; --card:#ffffff; --ink:#14213d; --muted:#5b6778; --line:#d9e0ea; --navy:#1f3a5f;
+          --amber:#e89f2e; --teal:#1c7c7d; --seller:#eef2f6; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0f1624; --card:#172133; --ink:#e7edf6;
+          --muted:#9aa8bc; --line:#2a3850; --navy:#8fb3e0; --seller:#1e2b42; --err:#ff8a80; } }
+  :root[data-theme="dark"] { --bg:#0f1624; --card:#172133; --ink:#e7edf6; --muted:#9aa8bc; --line:#2a3850;
+          --navy:#8fb3e0; --seller:#1e2b42; --err:#ff8a80; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:16px; }
+  .top { display:flex; gap:16px; align-items:center; flex-wrap:wrap; background:var(--card); border:1px solid var(--line);
+         border-radius:14px; padding:14px 16px; }
+  .orb { width:64px; height:64px; border-radius:50%; flex:none; background:var(--line); display:grid; place-items:center;
+         font-size:26px; transition:background .2s, box-shadow .2s; }
+  .orb.live { background:color-mix(in srgb, var(--teal) 25%, var(--card)); }
+  .orb.vani { background:var(--amber); box-shadow:0 0 0 8px color-mix(in srgb, var(--amber) 25%, transparent); }
+  .orb.wait { background:color-mix(in srgb, var(--amber) 35%, var(--card)); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.55; } }
+  .status { flex:1; min-width:200px; }
+  .status b { font-size:17px; }
+  .status small { display:block; color:var(--muted); }
+  .meter { height:6px; background:var(--line); border-radius:3px; margin-top:8px; overflow:hidden; }
+  .meter i { display:block; height:100%; width:0; background:var(--teal); transition:width .08s; }
+  button { font:inherit; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--ink);
+           padding:9px 14px; cursor:pointer; }
+  button.primary { background:var(--navy); color:var(--card); border-color:var(--navy); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #log { margin-top:14px; display:flex; flex-direction:column; gap:8px; }
+  .msg { max-width:80%; padding:9px 13px; border-radius:12px; background:var(--card); border:1px solid var(--line); }
+  .msg.seller { align-self:flex-end; background:var(--seller); }
+  .msg .who { font-size:12px; color:var(--muted); }
+  .err { color:var(--err); margin-top:8px; }
+  .hint { color:var(--muted); font-size:13px; margin-top:10px; }
+  @media (max-width:560px) { .msg { max-width:95%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div id="orb" class="orb">📞</div>
+    <div class="status">
+      <b id="state">Ready</b>
+      <small id="who">VANI on Sarvam's live runtime</small>
+      <div class="meter"><i id="lvl"></i></div>
+    </div>
+    <div class="row">
+      <button id="start" class="primary">▶ Start call</button>
+      <button id="end" disabled>■ End</button>
+    </div>
+  </div>
+  <div id="err" class="err"></div>
+  <div id="log"></div>
+  <div class="hint">Talk naturally. Sarvam's runtime handles turn-taking and interruptions. Headphones recommended.
+    The microphone works on <b>localhost</b> (or https).</div>
+</div>
+<script>
+const qs = new URLSearchParams(location.search);
+const token = window.VANI_TOKEN || qs.get("t");
+const WS = window.VANI_WS || `ws://${location.hostname}:8603`;
+const $ = id => document.getElementById(id);
+let ws, ctx, stream, proc, playAt = 0, sources = [], lastRole = null, lastDiv = null;
+
+function setState(cls, text) { $("orb").className = "orb " + cls; $("state").textContent = text;
+  $("orb").textContent = {live:"👂", vani:"🔊", wait:"…"}[cls] || "📞"; }
+function add(role, text) {
+  // the runtime sends transcript pieces; join consecutive pieces from the same speaker
+  if (role === lastRole && lastDiv) { lastDiv.lastChild.textContent += " " + text; return; }
+  const d = document.createElement("div");
+  d.className = "msg " + (role === "bot" ? "vani" : "seller");
+  d.innerHTML = `<div class="who">${role === "bot" ? "📞 VANI" : "🧑‍💼 You"}</div>`;
+  d.appendChild(document.createTextNode(text));
+  $("log").appendChild(d); d.scrollIntoView({block:"nearest", behavior:"smooth"});
+  lastRole = role; lastDiv = d;
+}
+function playPcm(buf) {
+  const rate = new DataView(buf).getUint32(0, true), pcm = new Int16Array(buf, 4);
+  const b = ctx.createBuffer(1, pcm.length, rate), ch = b.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 32768;
+  const src = ctx.createBufferSource(); src.buffer = b; src.connect(ctx.destination);
+  playAt = Math.max(playAt, ctx.currentTime + 0.05); src.start(playAt); playAt += b.duration;
+  sources.push(src); src.onended = () => { sources = sources.filter(s => s !== src);
+    if (!sources.length) setState("live", "Listening… just talk"); };
+  setState("vani", "VANI is speaking");
+}
+function stopPlayback() { sources.forEach(s => { try { s.stop(); } catch (e) {} }); sources = []; playAt = 0; }
+
+async function start() {
+  $("err").textContent = ""; $("log").innerHTML = ""; lastRole = null;
+  if (!token) { $("err").textContent = "No session: generate a GLID in the dashboard first."; return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+  } catch (e) { $("err").textContent = "Microphone blocked. Allow it, or open the dashboard on localhost."; return; }
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  $("start").disabled = true; $("end").disabled = false; setState("wait", "Connecting to Sarvam…");
+  ws = new WebSocket(`${WS}/?t=${encodeURIComponent(token)}`); ws.binaryType = "arraybuffer";
+  ws.onmessage = ev => {
+    if (typeof ev.data !== "string") return playPcm(ev.data);
+    const m = JSON.parse(ev.data);
+    if (m.type === "connected") { $("who").textContent = `VANI · GLID ${m.glid} · ${m.company} · Sarvam runtime`; setState("live", "Connected, VANI is starting…"); micOn(); }
+    else if (m.type === "transcript") add(m.role, m.text);
+    else if (m.type === "interrupt") { stopPlayback(); setState("live", "You interrupted, go on"); }
+    else if (m.type === "error") { $("err").textContent = m.text; }
+    else if (m.type === "ended") { end(true); }
+  };
+  ws.onclose = () => end(true);
+}
+function micOn() {
+  const src = ctx.createMediaStreamSource(stream);
+  proc = ctx.createScriptProcessor(2048, 1, 1);
+  const mute = ctx.createGain(); mute.gain.value = 0;
+  src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  const ratio = ctx.sampleRate / 16000;
+  proc.onaudioprocess = e => {
+    const x = e.inputBuffer.getChannelData(0), n = Math.floor(x.length / ratio), pcm = new Int16Array(n);
+    let sum = 0;
+    for (let i = 0; i < n; i++) { const s = Math.max(-1, Math.min(1, x[Math.floor(i * ratio)])); pcm[i] = s * 0x7fff; sum += s * s; }
+    $("lvl").style.width = Math.min(100, Math.sqrt(sum / n) * 900) + "%";
+    if (ws && ws.readyState === 1) ws.send(pcm.buffer);
+  };
+}
+function end(fromServer) {
+  if (ws && ws.readyState === 1 && !fromServer) ws.send(JSON.stringify({type:"stop"}));
+  if (ws && !fromServer) ws.close();
+  stopPlayback(); if (proc) proc.disconnect(); if (stream) stream.getTracks().forEach(t => t.stop());
+  if (ctx && ctx.state !== "closed") ctx.close();
+  ws = proc = stream = ctx = null;
+  $("start").disabled = false; $("end").disabled = true; $("start").textContent = "↺ New call";
+  if (!$("err").textContent) setState("", "Call ended"); else setState("", "Not connected");
+}
+$("start").onclick = start;
+$("end").onclick = () => end(false);
+</script>
+</body>
+</html>

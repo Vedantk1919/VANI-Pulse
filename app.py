@@ -818,6 +818,13 @@ def voice_server():
     return vs.start()
 
 
+@st.cache_resource
+def sdk_bridge():
+    """Bridge from the browser to Sarvam's Agents SDK runtime (src/sdk_bridge.py), started once."""
+    from src import sdk_bridge as sb
+    return sb.start()
+
+
 def page_live():
     warm()
     from src import live_runtime as lr
@@ -905,20 +912,35 @@ def page_live():
         st.download_button("Download full prompt (.md)", r["full_prompt"], file_name=f"vani_prompt_{r['glid']}.md")
         source("persona", "sellers", "gc", extra="rules in src/prompt_gen.py; base prompt outputs/vani_agent_prompt_template.md")
     with t3:
-        if not sarvam.available():
+        from src import sdk_bridge as sb
+        from src import voice_server as vs
+        modes = ["🟢 Sarvam live runtime (Agents SDK)", "🎧 Hands-free voice call", "⌨️ Push-to-talk & typing"]
+        mode = st.radio("Mode", modes, index=0 if sb.available() else 1, horizontal=True,
+                        key="live_mode", label_visibility="collapsed")
+        key = (r["glid"], r["at"], r["company"])
+        if st.session_state.get("live_voice_key") != key:
+            st.session_state["live_voice_tok"] = vs.register(r["sess"], r["company"], r["glid"])
+            st.session_state["live_voice_key"] = key
+        tok = st.session_state["live_voice_tok"]
+        host = (st.context.headers.get("host") or "localhost").split(":")[0]
+        if mode == modes[0]:
+            if not sb.available():
+                st.warning("Sarvam's live runtime needs an **Agents API key** from indus.sarvam.ai "
+                           "(the `sk_` developer key is refused by the agents runtime). Start the dashboard with "
+                           "`SARVAM_AGENT_API_KEY=<key>` set, then reload. Until then use 🎧 Hands-free.")
+            elif not sdk_bridge():
+                st.error(f"Bridge port {sb.PORT} is busy. Free it and reload.")
+            else:
+                st.components.v1.html(sb.embed_html(tok, f"ws://{host}:{sb.PORT}"), height=560, scrolling=True)
+                st.caption(f"Press **Start call** and talk naturally. This is Sarvam's own voice runtime (the same one as "
+                           f"*Test agent*), running agent `{lr.LIVE_AGENT_ID}` with this seller's prompt passed in as "
+                           f"variables at call time. The key stays on this machine. Mic needs **localhost**.")
+        elif not sarvam.available():
             st.warning("Set SARVAM_API_KEY before starting the dashboard.")
-        elif st.radio("Mode", ["🎧 Hands-free voice call", "⌨️ Push-to-talk & typing"], horizontal=True,
-                      key="live_mode", label_visibility="collapsed").startswith("🎧"):
-            from src import voice_server as vs
+        elif mode == modes[1]:
             if not voice_server():
                 st.error(f"Voice server port {vs.PORT} is busy. Free it and reload.")
             else:
-                key = (r["glid"], r["at"], r["company"])
-                if st.session_state.get("live_voice_key") != key:
-                    st.session_state["live_voice_tok"] = vs.register(r["sess"], r["company"], r["glid"])
-                    st.session_state["live_voice_key"] = key
-                tok = st.session_state["live_voice_tok"]
-                host = (st.context.headers.get("host") or "localhost").split(":")[0]
                 api = f"http://{host}:{vs.PORT}"
                 st.components.v1.html(vs.embed_html(tok, api), height=560, scrolling=True)
                 st.caption(f"Press **Start call** and just talk, no buttons between turns. VANI hears when you stop, "
