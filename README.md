@@ -211,6 +211,22 @@ SARVAM_API_KEY=... .venv/bin/streamlit run app.py # dashboard (audio needs the k
 - The Global Context seller files are read from `data/gc/`. Override with `BTC_GC_DIR`.
 - Seller data is internal to IndiaMART: don't copy `data/` or `outputs/plans/` off premises.
 
+## Demo dashboard
+
+```bash
+.venv/bin/streamlit run app.py
+```
+
+The pages follow the demo story:
+
+1. **Overview:** the problem, what we built, headline KPIs and an architecture diagram.
+2. **What the data says:** six charts from 530k dials and a table of transcript findings.
+3. **Demo sellers:** 10 curated real sellers, one per scenario. Each has a profile, every dial and other-channel activity, the plan with blocked slots, weekly windows, the retry ladder, *before vs after* (what the current system did next vs our plan), `seller.md`, the VANI prompt with the reason for each instruction, and a write-back demo.
+4. **Talk to VANI:** a live Sarvam chat seeded with the selected seller's prompt, one-click test lines with the behaviour to expect, a transcript download, and "Speak opening" (Bulbul TTS).
+5. **Results & validation:** backtest, 15-minute verdict, model comparison and checks, Global Context tests.
+
+**🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=3&s=1` opens page 3 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script.
+
 ## Test the VANI agent on Sarvam with any GLID (no hosting)
 
 `src/sarvam_live.py` builds the chosen seller's plan and prompt block locally. It then starts a Sarvam session with the block passed in as agent variables, using Sarvam's conversation SDK.

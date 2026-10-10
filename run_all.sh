@@ -14,5 +14,6 @@ if [ -f data/persona/incorrect_mf.parquet ] || compgen -G "data/persona/ps07_eva
   $PY -m src.label_check     # meeting-label robustness (needs the evaluator outputs)
 fi
 $PY -m src.windows           # brief outputs: confidence by history, window stability, off-policy IPS, 15-min by segment
+$PY -m src.analysis          # aggregates for the dashboard's analysis page
 $PY -m src.samples           # sample call plans + seller.md files
 $PY presentation/make_slide.py   # one-slide presentation

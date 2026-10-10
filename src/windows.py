@@ -174,8 +174,11 @@ def main():
     rep["off_policy_ips"] = off_policy(te, model)
     print("IPS:", rep["off_policy_ips"])
     rep["short_redial_by_segment"] = short_redial_by_segment(df)
-    rep["example_weekly_windows"] = weekly_windows(78319)[0].to_dict("records")
-    rep["example_retry_ladder"] = retry_ladder(78319, datetime(2026, 9, 30, 9, 0))
+    from .demo_sellers import DEMO
+    if DEMO:                                                # example seller from the local (git-ignored) demo list
+        ex = DEMO[0]
+        rep["example_weekly_windows"] = weekly_windows(ex["glid"], datetime.fromisoformat(ex["at"]))[0].to_dict("records")
+        rep["example_retry_ladder"] = retry_ladder(ex["glid"], datetime.fromisoformat(ex["at"]))
     json.dump(rep, open(OUT_DIR / "brief_report.json", "w"), indent=2, default=str)
 
 
