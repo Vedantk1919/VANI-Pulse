@@ -182,7 +182,7 @@ We scored 260 sellers that have cross-channel memory, each at a real moment in S
 **Screen:** back to **1 · Overview**, or the one-slide summary (`presentation/best_time_to_call_one_slide.pptx`).
 
 **Meet:**
-> "To sum up, VANI Pulse saves about one call in six, the same meetings or more, and sellers no longer redialled every 15 minutes. That's fewer irritated sellers and more meetings for IndiaMART.
+> "To sum up, VANI Pulse saves about one call in six while keeping meetings the same or higher, and sellers are no longer redialled every 15 minutes. That's fewer irritated sellers and more meetings for IndiaMART.
 > One honest limit: the gains are estimated from data logged under the old schedule, so the next step is a 5% live A/B test before rolling out to everyone.
 > Code, README, skills.md and our Sarvam agent ID are in the submission. Thank you."
 
