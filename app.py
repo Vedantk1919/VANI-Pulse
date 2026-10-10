@@ -560,7 +560,12 @@ def page_talk():
     if not glid:
         st.info("Pick a demo seller in the sidebar first.")
         return
-    company = st.text_input("Company name VANI uses (use a made-up one while recording)", value="Sharma Traders")
+    default_company = (scenario or {}).get("demo_company") or "Sharma Traders"
+    if scenario is None and not st.session_state.get("mask") and sm.has_context(int(glid)):
+        real = sm._profile().loc[int(glid)].get("company_name")
+        default_company = real if isinstance(real, str) else default_company
+    company = st.text_input("Company name VANI uses (demo sellers use the same made-up name as their Sarvam agent)",
+                            value=default_company, key=f"company_{glid}")
     sess = sl.build_session(int(glid), at, company or None)
     w = sess["plan"]["when"]
     st.caption(mask(f"GLID {glid}") + f" · as of {at:%d %b %H:%M} · plan: {w['action'].upper()} {w['slot'] or ''} · "
@@ -644,6 +649,21 @@ def page_talk():
             lat = sorted(conv.latency)
             st.caption(f"Median reply time {lat[len(lat) // 2]:.2f}s" if lat else "No replies yet"
                        + (f" · outcome tags: {', '.join(sorted(conv.tags))}" if conv.tags else ""))
+        st.divider()
+        st.markdown("#### 🔗 Test live on the Sarvam platform")
+        agent_id = (scenario or {}).get("sarvam_agent_id")
+        if agent_id:
+            st.markdown(f"This seller has its own agent on Sarvam, pre-loaded with the same prompt "
+                        f"(company **{scenario['demo_company']}**, this seller's hook, best times, language and pace).")
+            st.code(f"{scenario['sarvam_agent_name']}\nAgent ID: {agent_id}", language=None)
+            st.link_button("Open Sarvam (indus.sarvam.ai) ↗", "https://indus.sarvam.ai", type="secondary")
+            st.caption("On Sarvam: **Build → Agents** → open the agent named above → **Test agent** → allow the microphone and "
+                       "talk to VANI by voice. Same test lines as on the right.")
+        elif scenario and scenario.get("scenario", "").startswith("Stop rule"):
+            st.info("No Sarvam agent for this seller: our plan says **stop calling** (5 attempts reached), so there is no call to test.")
+        else:
+            st.markdown("Custom GLIDs run here on the Sarvam APIs above. To test one on the Sarvam platform, paste its prompt "
+                        "(expander on the right) into an agent on [indus.sarvam.ai](https://indus.sarvam.ai) and use **Test agent**.")
         st.caption(f"Runs on Sarvam: speech-to-text {STT_MODEL} (language auto-detect) → LLM {LLM_MODEL} with the "
                    f"same VANI prompt as the Sarvam agents → text-to-speech bulbul:v3 at this seller's pace. "
                    f"Language is re-detected on every seller turn.")

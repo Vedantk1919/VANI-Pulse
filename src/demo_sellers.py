@@ -22,6 +22,7 @@ def demo_table():
     rows = []
     for d in DEMO:
         rows.append({"GLID": d["glid"], "Scenario": d["scenario"], "As of": d["at"].replace("T", " "),
+                     "Demo company": d.get("demo_company", "-"), "Sarvam agent": d.get("sarvam_agent_id") or "- (plan: stop)",
                      "Memory (seller.md)": "yes" if sm.has_context(d["glid"]) else "-", "What it shows": d["show"]})
     return pd.DataFrame(rows)
 

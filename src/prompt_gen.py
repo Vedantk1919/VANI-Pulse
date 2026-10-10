@@ -245,7 +245,7 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     d["busy_handling"] = (f"If the seller is busy/driving: stop the pitch at once and offer two concrete times from the "
                           f"call plan: 'Koi baat nahi - kya main {alt_txt} call karun?'. When the seller picks or gives a time, read it back "
                           f"with the day (a range as a range) and confirm it before ending the call. That time is a "
-                          f"CALLBACK, not a meeting: 'main kal shaam 5 baje call karungi'.",
+                          f"CALLBACK, not a meeting: 'main {alt_txt.split(' ya ')[0]} call karungi'.",
                           EVIDENCE["busy"] + ". The offered times are this seller's best predicted windows.")
     d["price_question"] = ("If the seller asks price: give the one-line answer you have, then 'baaki detail executive "
                            "meeting mein samjha denge - kal kis time 15 minute milenge?'", EVIDENCE["price"])

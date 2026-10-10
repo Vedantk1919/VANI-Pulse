@@ -46,6 +46,13 @@ OUT = OUT_DIR / "sarvam_test"
 OUT.mkdir(parents=True, exist_ok=True)
 
 
+def fill_unknown_counts(text):
+    """Outside production the dialer does not fill {enquiry_count}: use an honest phrase, never a number."""
+    return (text.replace("{enquiry_count} se zyada buyer enquiry aayi hain", "kaafi buyer enquiry aa rahi hain")
+                .replace("More than {enquiry_count} buyer enquiries have come in", "Many buyer enquiries are coming in")
+                .replace("{enquiry_count}", "kaafi"))
+
+
 def build_session(glid, at, company=None):
     """Plan + variables for one seller at one moment."""
     out, _ = pg.generate(glid, at, write=False)
@@ -59,7 +66,7 @@ def build_session(glid, at, company=None):
     english = "Start in simple English" in out["how"]["language"]["instruction"]
     return {
         "plan": out,
-        "variables": {"seller_block": out["vani_prompt_block"], "company_name": company},
+        "variables": {"seller_block": fill_unknown_counts(out["vani_prompt_block"]), "company_name": company},
         "greeting": (f"{hello}! Am I speaking with {company}?" if english else f"{hello}! Kya meri baat {company} se ho rahi hai?"),
         "pace": pace,
         "language": "English" if english else "Hindi",

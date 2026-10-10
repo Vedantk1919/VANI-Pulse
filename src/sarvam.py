@@ -40,7 +40,8 @@ def tts(text, language_code="hi-IN", pace=1.0, speaker=SPEAKER, model=MODEL, tim
 
 def opening_script(plan_json, company="aapki company"):
     """The first two bot turns VANI would speak for this seller."""
-    hook = plan_json["how"]["opening_hook"]["instruction"].replace("{enquiry_count}", "60")
+    from .sarvam_live import fill_unknown_counts
+    hook = fill_unknown_counts(plan_json["how"]["opening_hook"]["instruction"])
     greet = plan_json["how"]["language"]["instruction"]
     g = re.search(r"greeting '([^']+)'|with '([^']+)'", greet)
     hello = (g.group(1) or g.group(2)).split(" / ")[0] if g else "Namaste"
