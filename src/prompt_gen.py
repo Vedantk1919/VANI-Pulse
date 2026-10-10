@@ -177,8 +177,21 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     short_calls = pd.notna(persona.get("avg_answered_call_sec")) and persona["avg_answered_call_sec"] < 20
     frustrated = bool(persona.get("showed_frustration") == 1) or dials_24h >= 2 or attempt_no >= 3
 
-    # 1. Opening hook - matched to the lead trigger
-    if bucket in ("PIM", "PAM", "PANF"):
+    # 1. Opening hook - matched to the lead trigger (English for sellers who start in English)
+    english = profile["seller_state"] in SOUTH
+    if english and bucket in ("PIM", "PAM", "PANF"):
+        hook = ("I can see you were exploring IndiaMART's paid services. Our sales executive would like a short "
+                "15-20 minute meeting with you about it.")
+        d["opening_hook"] = (hook, EVIDENCE["hook_paid"])
+    elif english and bucket in ("PUA", "PUT"):
+        hook = (f"You were looking at buyleads on IndiaMART - new buyers are coming in for {cat} in {city}. Our sales "
+                f"executive can show you how to convert them in a 15-20 minute meeting.")
+        d["opening_hook"] = (hook, EVIDENCE["hook_buylead"])
+    elif english:
+        hook = (f"More than {{enquiry_count}} buyer enquiries have come in for {cat} in {city}. Our sales executive "
+                f"would like a 15-20 minute meeting to walk you through them.")
+        d["opening_hook"] = (hook, EVIDENCE["hook_enquiry"] + ". Always speak the real number.")
+    elif bucket in ("PIM", "PAM", "PANF"):
         hook = (f"Main dekh rahi hoon ki aap IndiaMART ki paid services explore kar rahe the. Isi baare mein hamare "
                 f"sales executive aapke saath 15-20 minute ki chhoti si meeting karna chahte hain.")
         d["opening_hook"] = (hook, EVIDENCE["hook_paid"])
@@ -267,7 +280,7 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
 
 def add_global_context(design, f):
     """Use seller.md facts (Problem 2): real-number opening, what VANI already knows, no re-asking."""
-    hook = sm.personal_hook(f)
+    hook = sm.personal_hook(f, english=design["language"][0].startswith("Start in simple English"))
     if hook:
         design["opening_hook"] = (hook, "Real numbers from this seller's last 30 days (seller.md). "
                                   + EVIDENCE["hook_enquiry"])

@@ -228,15 +228,23 @@ def to_markdown(f, p, windows, now):
     return "\n".join(L) + "\n"
 
 
-def personal_hook(f):
+def personal_hook(f, english=False):
     """Opening hook with real numbers, or None if there is nothing concrete to say."""
     if f.get("enquiries_30d", 0) >= 2:
         prod = f["enquiry_products_30d"].split(" (")[0] if f["enquiry_products_30d"] else "aapke products"
         cities = ", ".join(c.split(" (")[0] for c in f["enquiry_cities_30d"].split(", ")[:2]) if f["enquiry_cities_30d"] else ""
+        if english:
+            unread = f" - {f['unread_enquiries_30d']} of them still unread" if f["unread_enquiries_30d"] else ""
+            return (f"In the last 30 days you received {f['enquiries_30d']} buyer enquiries for {prod}"
+                    + (f", mostly from {cities}" if cities else "") + f"{unread}. Our sales executive can show you "
+                    "how to turn them into orders in a 15-20 minute meeting.")
         unread = f" - {f['unread_enquiries_30d']} abhi tak padhi nahi gayi" if f["unread_enquiries_30d"] else ""
         return (f"Pichhle 30 din mein {prod} ke liye aapko {f['enquiries_30d']} buyer enquiry aayi hain"
                 + (f", zyada tar {cities} se" if cities else "") + f"{unread}. Hamare sales executive 15-20 minute mein "
                 "dikha denge ki inhe order mein kaise badlein.")
+    if f.get("buyer_calls_missed_90d", 0) >= 3 and english:
+        return (f"You missed {f['buyer_calls_missed_90d']} buyer calls in the last 3 months. Our sales executive can show "
+                "you how not to lose these buyers in a 15-20 minute meeting.")
     if f.get("buyer_calls_missed_90d", 0) >= 3:
         return (f"Pichhle 3 mahine mein {f['buyer_calls_missed_90d']} buyer calls miss ho gayi hain. Hamare sales executive "
                 "15-20 minute mein batayenge ki koi buyer chhoote nahi.")

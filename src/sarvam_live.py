@@ -60,7 +60,7 @@ def build_session(glid, at, company=None):
     return {
         "plan": out,
         "variables": {"seller_block": out["vani_prompt_block"], "company_name": company},
-        "greeting": f"{hello}! Kya meri baat {company} se ho rahi hai?",
+        "greeting": (f"{hello}! Am I speaking with {company}?" if english else f"{hello}! Kya meri baat {company} se ho rahi hai?"),
         "pace": pace,
         "language": "English" if english else "Hindi",
     }

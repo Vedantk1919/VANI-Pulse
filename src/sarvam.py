@@ -44,4 +44,6 @@ def opening_script(plan_json, company="aapki company"):
     greet = plan_json["how"]["language"]["instruction"]
     g = re.search(r"greeting '([^']+)'|with '([^']+)'", greet)
     hello = (g.group(1) or g.group(2)).split(" / ")[0] if g else "Namaste"
+    if language_from_design(plan_json["how"]) == "en-IN":
+        return f"{hello}! Am I speaking with {company}? This is Payal from IndiaMART. {hook}"
     return f"{hello}! Kya meri baat {company} se ho rahi hai? Main IndiaMART se Payal bol rahi hoon. {hook}"
