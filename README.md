@@ -6,6 +6,7 @@ For every seller, the agent decides:
 
 - **When** to dial: the best hour slot, how to retry when the seller doesn't pick up, and when to stop.
 - **How** VANI should run the call: opening hook, tone, pace, language, and how to handle "busy", price questions and time capture.
+- **Live adaptation** during the call: if the seller sounds irritated, rushed or confused, or switches language, VANI changes style straight away (apologise and offer a callback / ask for the time directly / simplify / continue in the seller's language).
 
 Each decision comes with the evidence behind it. The output is a seller-specific prompt block for the VANI agent on Sarvam, plus a call plan for the dialer.
 

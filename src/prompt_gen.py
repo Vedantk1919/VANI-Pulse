@@ -209,6 +209,21 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     if persona.get("already_in_touch_with_executive") == 1:
         d["existing_executive"] = ("Seller already talks to an IndiaMART executive: acknowledge it and offer to schedule "
                                    "with the same executive; do not push a new one.", EVIDENCE["exec"])
+    # 7. Live adaptation - switch style mid-call when the seller's signals change
+    english_first = st in SOUTH
+    d["live_adaptation"] = (
+        "Watch every seller turn and switch style immediately:\n"
+        f"  * IRRITATED ('baar baar call', 'kitni baar', short sharp replies): apologise once "
+        f"('Maaf kijiye, pareshan karne ka iraada nahi tha'), then ONE sentence only and offer a callback: "
+        f"'kya main {alt_txt} call karun?'. If they still refuse, thank them and end.\n"
+        "  * RUSHED ('jaldi bolo', 'time nahi hai', 'haan haan', answers before you finish): skip the explanation, "
+        "ask for the time straight away: 'Bas ek sawaal - kal kis time 15 minute milenge?'\n"
+        + ("  * SWITCHES TO HINDI: continue in simple Hindi/Hinglish.\n" if english_first else
+           "  * SWITCHES TO ENGLISH: continue in English for the rest of the call.\n")
+        + "  * CONFUSED ('kya?', 'samjha nahi', 'matlab?', repeats your words): slow down, repeat the point in simpler "
+        "words in one short sentence, no jargon ('ek executive aapke paas aakar 15 minute mein samjhayega').\n"
+        "  Switch once per signal; do not go back to the long pitch after a switch.",
+        EVIDENCE["repeat"] + ". " + EVIDENCE["busy"] + ". " + EVIDENCE["who"] + ".")
     d["time_capture"] = ("When the seller gives a range ('char se paanch'), read it back as a range "
                          "('chaar se paanch baje ke beech, theek hai?') before confirming.", EVIDENCE["time_bug"])
     if isinstance(persona.get("past_objections"), str):
@@ -231,6 +246,7 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         f"- If price is asked: {design['price_question'][0]}",
         f"- Time capture: {design['time_capture'][0]}",
     ]
+    lines.append(f"- Live adaptation: {design['live_adaptation'][0]}")
     for k in ("existing_executive", "past_objections"):
         if k in design:
             lines.append(f"- {k.replace('_', ' ').capitalize()}: {design[k][0]}")
