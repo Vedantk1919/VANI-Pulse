@@ -48,7 +48,20 @@
    - Executive calls were too rare to test, so we kept a cautious "skip today" rule and labelled it as such.
    The prompt now opens with real numbers and never re-asks what's known. VANI writes each call result back, and `seller.md` updates in ~37 ms, so a callback promised on the call is honoured by the planner.
 
-11. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
+11. **Checked against the PM's scheduler spec.** We adopted:
+    - the equal-dials metric (+6.6%)
+    - lead tiers A–D (Tier D: 47% of dials, 15% of meetings)
+    - a batch allocator (13.6 ms per lead)
+    - variables for the production Jinja2 prompt
+    - openings based on the last call's outcome
+    - the Hinglish "nahi" guard, verified on our transcripts (0.94× lift)
+    - the `incorrect_mf` label check (2.4% false meetings, flat across hours, so the AUC and the hour ranking are unchanged)
+
+    We tested two of the spec's points and kept our own version:
+    - Do-not-call stays a hard stop.
+    - The "midday dip" turned out to be mostly a retry-mix effect: no dip on first calls.
+
+12. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
 
 ## Limits and next steps
 

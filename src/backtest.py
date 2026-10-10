@@ -93,6 +93,7 @@ def part_a(te, model):
     p_actual = pm[rows, ai]
     best = pm.argmax(1)
     cap_choice = capacity_assign(te, pm)
+    eq_choice = capacity_assign(te, pm, slack=1.0)          # exactly the dials actually made per (day, hour)
     movable = np.isfinite(pm).sum(1) > 1
     res = {
         "attempts": int(len(te)), "movable_attempts": int(movable.sum()),
@@ -100,11 +101,13 @@ def part_a(te, model):
         "model_expected_meetings_actual_schedule": round(float(p_actual.sum()), 1),
         "model_expected_meetings_best_slot": round(float(pm[rows, best].sum()), 1),
         "model_expected_meetings_capacity_constrained": round(float(pm[rows, cap_choice].sum()), 1),
+        "model_expected_meetings_equal_dials_per_hour": round(float(pm[rows, eq_choice].sum()), 1),
         "share_attempts_moved_capacity": round(float((cap_choice != ai).mean()), 3),
         "answer_rate_actual_est": round(float(pa[rows, ai].mean()), 4),
         "answer_rate_capacity_est": round(float(pa[rows, cap_choice].mean()), 4),
     }
-    for k, num in [("lift_unconstrained_pct", "model_expected_meetings_best_slot"),
+    for k, num in [("lift_equal_dials_pct", "model_expected_meetings_equal_dials_per_hour"),
+                   ("lift_unconstrained_pct", "model_expected_meetings_best_slot"),
                    ("lift_capacity_pct", "model_expected_meetings_capacity_constrained")]:
         res[k] = round(100 * (res[num] / res["model_expected_meetings_actual_schedule"] - 1), 1)
     res["recommended_hour_mix"] = pd.Series(H[cap_choice]).value_counts(normalize=True).sort_index().round(3).to_dict()
@@ -247,8 +250,12 @@ def main():
     print("B baseline:", b["baseline"], "\nB default:", b["default"])
     d = part_d(te, keep, model)
     print("D combined:", d)
+    from .allocator import fit_tiers, tier_report
+    cuts = fit_tiers(df, model)                               # always refit: cut points follow the current model
+    tiers = tier_report(te, te.p_meeting.to_numpy(), cuts)
+    print("tiers:", tiers)
     c = part_c(df)
-    rep = {"test_period": f"{TEST_START} .. 2026-09-30", "retiming": a, "retry_stop": b, "combined": d,
+    rep = {"test_period": f"{TEST_START} .. 2026-09-30", "retiming": a, "retry_stop": b, "combined": d, "tiers": tiers,
            "rule_15min": c}
     json.dump(rep, open(OUT_DIR / "backtest_report.json", "w"), indent=2, default=str)
     pd.DataFrame(b["grid"]).to_csv(OUT_DIR / "retry_policy_grid.csv", index=False)

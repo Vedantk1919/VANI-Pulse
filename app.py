@@ -54,7 +54,8 @@ def render_plan():
         st.error(f"Could not build a plan: {e}")
         return
     w = out["when"]
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k5.metric("Lead tier", out.get("tier") or "-")
     k1.metric("Next action", w["action"].upper())
     k2.metric("Slot", w["slot"] or "-")
     k3.metric("P(answer)", f"{w['p_answer']:.0%}" if w["p_answer"] is not None else "-")
@@ -98,6 +99,11 @@ def render_plan():
     elif glid:
         st.caption("This seller is outside the 5,000-seller Global Context sample, so VANI uses the standard prompt.")
 
+    with st.expander("Production prompt: Jinja2 variables and rendered scheduler blocks"):
+        st.caption("For the production VANI Jinja2 template: include templates/vani_scheduler_blocks.j2 and pass these variables.")
+        st.json(out["jinja_vars"], expanded=False)
+        st.code(pg.render_jinja(out["jinja_vars"]), language="markdown")
+
     st.subheader("Prompt block for VANI")
     st.code(out["vani_prompt_block"], language="markdown")
     st.download_button("Download plan (.md)", pg.to_markdown(out), file_name=f"plan_{glid}.md")
@@ -136,6 +142,13 @@ with tab_bt:
 * **Re-timing retries** (model estimate, hourly dialer capacity respected): {a['lift_capacity_pct']:+}% meetings on the same dials.
 * Combined: about {comb['meetings_vs_baseline_pct']:+}% meetings with {abs(comb['dials_vs_baseline_pct'])}% fewer dials.
   The {b['baseline']['dials'] - comb['dials']:,} freed dials can go to fresh leads (first attempts fix ~10%).""")
+
+    st.markdown(f"**Same dials, better slots:** with exactly the dials actually made in each hour of September, re-timing "
+                f"retries gives **{a.get('lift_equal_dials_pct', 0):+}% meetings** (model estimate).")
+    if "tiers" in rep:
+        st.subheader("Lead tiers (cut points learned on Apr-Aug, shown on September)")
+        st.dataframe(pd.DataFrame(rep["tiers"]), width="stretch", hide_index=True)
+        st.caption("Tier D uses almost half the dials for ~15% of meetings - this is where the stop rule saves dials.")
 
     st.subheader("Is the time-of-day signal real? (empirical check on actual Sept outcomes)")
     st.caption("Each Sept call is scored by how good its actual hour was vs the same call's average over all hours "
@@ -214,6 +227,14 @@ with tab_rule:
 # ---------------------------------------------------------------- model
 with tab_model:
     st.caption(f"Production model: {mrep.get('model', 'ensemble')} (mean probability).")
+    lc_path = OUT_DIR / "label_check.json"
+    if lc_path.exists():
+        lc = json.load(open(lc_path))
+        st.subheader("Is the 'meeting fixed' label reliable?")
+        st.write(f"The incorrect_mf evaluator re-read {lc['meetings_evaluated']:,} meeting calls: "
+                 f"**{lc['false_meeting_rate']:.1%}** were not real meetings, at the same rate at every hour "
+                 f"and attempt. With the corrected label the Sept AUC stays {lc['test_auc_clean_label']} "
+                 f"and the hour ranking is unchanged (correlation {lc['hour_ranking_correlation']}).")
     cmp_path = OUT_DIR / "model_comparison.csv"
     if cmp_path.exists():
         st.subheader("Model bake-off (Sept 2026, same features and split)")

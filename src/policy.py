@@ -89,16 +89,42 @@ def candidate_slots(now, days=HORIZON_DAYS, not_before=None):
 
 def build_candidates(hist, profile, now, attempt_no, lead_sent=None, bucket="PUA",
                      bot_version="main_vani", days=HORIZON_DAYS):
+    """Feature rows for every candidate slot. History is summarised once (every slot is >= now,
+    so the same past dials apply); only slot-dependent fields are computed per slot."""
+    slots = candidate_slots(now, days)
+    h = hist[hist.call_start_time < pd.Timestamp(now)]
+    n = len(h)
+    base = {
+        "call_attempt_count": attempt_no, "redis_bucket": bucket, "lead_bot_version": bot_version,
+        "hist_n": n, "hist_ans_rate": h.ans.mean() if n else np.nan,
+        "hist_mf": int(h.mf.sum()) if n else 0, "hist_ni": int(h.ni.sum()) if n else 0,
+        "hist_callback": int(h.cb.sum()) if n else 0,
+        "hist_episodes": int((h.call_attempt_count == 1).sum()) if n else 0,
+        "hist_prev_episode_mf": int(h.mf.sum() > 0) if n else 0,
+        "prev_disp": h.disposition_label.iloc[-1] if n else "none", **profile}
+    band_stats = h.groupby("band").ans.agg(["size", "mean"]) if n else pd.DataFrame(columns=["size", "mean"])
+    t_hist = h.call_start_time.to_numpy() if n else np.array([], dtype="datetime64[ns]")
     rows = []
-    for slot in candidate_slots(now, days):
-        r = {"slot": slot, "hour": slot.hour, "dow": slot.weekday(), "is_weekend": int(slot.weekday() >= 5),
-             "call_attempt_count": attempt_no, "redis_bucket": bucket, "lead_bot_version": bot_version,
-             "trigger_delay_min": (min(max((slot - lead_sent).total_seconds() / 60, 0), 1440)
-                                   if attempt_no == 1 and lead_sent is not None else np.nan)}
-        r.update(_history_stats(hist, slot))
-        r.update(profile)
-        rows.append(r)
-    return pd.DataFrame(rows)
+    for slot in slots:
+        ts = np.datetime64(pd.Timestamp(slot))
+        band = band_of(slot.hour)
+        bn = int(band_stats.loc[band, "size"]) if band in band_stats.index else 0
+        br = float(band_stats.loc[band, "mean"]) if bn else np.nan
+        secs = (ts - t_hist) / np.timedelta64(1, "s") if n else np.array([])
+        rows.append({
+            "slot": slot, "hour": slot.hour, "dow": slot.weekday(), "is_weekend": int(slot.weekday() >= 5),
+            "trigger_delay_min": (min(max((slot - lead_sent).total_seconds() / 60, 0), 1440)
+                                  if attempt_no == 1 and lead_sent is not None else np.nan),
+            "band": band, "band_n": bn, "band_ans_rate": br,
+            "band_ans_lift": br - base["hist_ans_rate"] if bn and n else np.nan,
+            "hrs_since_prev": min(secs[-1] / 3600, 24 * 60) if n else np.nan,
+            "dials_24h": int((secs < 86400).sum()) if n else 0,
+            "dials_today": int((t_hist.astype("datetime64[D]") == ts.astype("datetime64[D]")).sum()) if n else 0,
+        })
+    c = pd.DataFrame(rows)
+    for k, v in base.items():
+        c[k] = v
+    return c
 
 
 def apply_guardrails(c, hist, attempt_no):

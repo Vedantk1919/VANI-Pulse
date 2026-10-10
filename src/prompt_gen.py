@@ -15,7 +15,7 @@ from functools import lru_cache
 import numpy as np
 import pandas as pd
 
-from .config import WORK_DIR, PERSONA_DIR, OUT_DIR, TEST_START
+from .config import ROOT, WORK_DIR, PERSONA_DIR, OUT_DIR, TEST_START
 from .model import TimingModel
 from . import policy
 from . import seller_md as sm
@@ -37,6 +37,10 @@ EVIDENCE = {
     "who": "Calls where the seller first asks 'kaun bol raha hai?' fix 16.6% vs 25.1% after a clear confirmation",
     "repeat": "Frustration in transcripts rises from 1.8% (no dial in 24h) to 5.5% (5+ dials); 2.0% on attempt 1 vs 8.9% on attempt 6",
     "time_bug": "Seen in transcripts: 'char se paanch' (4 to 5) was booked as 4:05",
+    "nahi": "'nahi' alone is not a refusal: it appears in 54% of calls that fixed a meeting (0.94x lift). Real negatives: "
+            "'interest/zaroorat nahi' 0.31x, deferral ('baad mein', 'abhi nahi') 0.48x, 'call mat karo' 0.37x",
+    "prior": "Meetings per answered call by the last outcome: fresh lead 18.6%, after Not Answered 10.8%, after Call Later "
+             "8.0%, after a talk with no result 3.6%, attempt 4+ 4.3%",
 }
 
 EPISODE_RESET_HRS = 72
@@ -68,10 +72,16 @@ def _model():
     return TimingModel()
 
 
+@lru_cache(maxsize=1)
+def _attempts_by_seller():
+    a = _attempts().sort_values("call_start_time")
+    return {g: d for g, d in a.groupby("fk_glusr_usr_id", sort=False)}
+
+
 def seller_context(glid, now):
-    a = _attempts()
-    hist = a[(a.fk_glusr_usr_id == glid) & (a.call_start_time < now)].sort_values("call_start_time")
-    prof_row = a[a.fk_glusr_usr_id == glid].iloc[-1] if (a.fk_glusr_usr_id == glid).any() else None
+    rows = _attempts_by_seller().get(glid)
+    hist = rows[rows.call_start_time < pd.Timestamp(now)] if rows is not None else _attempts().iloc[:0]
+    prof_row = rows.iloc[-1] if rows is not None else None
     profile = {c: (prof_row[c] if prof_row is not None else np.nan) for c in PROFILE_COLS}
     for c in ("seller_state", "business_type", "nature_of_business", "top_category_group"):
         profile[c] = str(profile[c]) if pd.notna(profile[c]) else "NA"
@@ -137,7 +147,25 @@ def pick_alternatives(windows, now, n=2):
     return [hinglish_time(t, now) for t in out]
 
 
-def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now):
+def prior_outcome_opening(last_disp, attempt_no, hist, now):
+    """How to open, given what happened on the last call of this lead (spec: conditional blocks)."""
+    if attempt_no >= 4:
+        return ("Re-contact (attempt 4+): acknowledge the repeated calls and offer an opt-out before the pitch: 'Kai baar "
+                "call kiya, maaf kijiye - bas ek minute, agar aap nahi chahte to main dobara call nahi karungi.'")
+    if last_disp == "Call Later / Busy":
+        last = hist.iloc[-1] if len(hist) else None
+        when = (f" {last.lead_tbro_time:%I:%M %p}".replace(" 0", " ") if last is not None and pd.notna(last.lead_tbro_time) else "")
+        return (f"Callback: skip the introduction and reference it: 'Aapne{when} call karne ko kaha tha, isliye call kiya - "
+                "kya ab 1 minute baat ho sakti hai?' Then go straight to the meeting time.")
+    if last_disp == "General (talked)":
+        return ("Re-contact after a talk with no result (often a dropped call): reference it, do not re-pitch: 'Pichhli "
+                "baar baat poori nahi ho payi thi - bas meeting ka time fix karna tha.'")
+    if last_disp == "Not Answered":
+        return "Treat as cold: shortest opening - confirm the company, one-line hook, then the meeting ask."
+    return "First contact: confirm the company, introduce yourself in one line, then the opening hook."
+
+
+def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now, last_disp=None):
     """Rules -> opening hook, tone, pace, language, handling. Each item carries its reason."""
     d = {}
     city = persona.get("seller_city") or "aapke shehar"
@@ -225,6 +253,10 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
         "words in one short sentence, no jargon ('ek executive aapke paas aakar 15 minute mein samjhayega').\n"
         "  Switch once per signal; do not go back to the long pitch after a switch.",
         EVIDENCE["repeat"] + ". " + EVIDENCE["busy"] + ". " + EVIDENCE["who"] + ".")
+    d["prior_outcome"] = (prior_outcome_opening(last_disp, attempt_no, hist, now), EVIDENCE["prior"])
+    d["negation_guard"] = ("'nahi' alone never ends the call ('nahi, abhi dukaan pe hoon' is not a no). End or step back only on "
+                           "a clear refusal ('interest nahi', 'zaroorat nahi'), a deferral (offer a callback), or 'call mat "
+                           "karo' (apologise, confirm, end, tag do_not_call).", EVIDENCE["nahi"])
     d["time_capture"] = ("When the seller gives a range ('char se paanch'), read it back as a range "
                          "('chaar se paanch baje ke beech, theek hai?') before confirming.", EVIDENCE["time_bug"])
     if isinstance(persona.get("past_objections"), str):
@@ -258,6 +290,7 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         f"## Seller-specific instructions (GLID {glid})",
         f"- Seller: {persona.get('top_category_1', 'NA')} | {profile['nature_of_business']} | "
         f"{profile['business_type']} | {persona.get('annual_turnover', 'NA')} | {persona.get('seller_city', '')}, {profile['seller_state']}",
+        f"- How to open this call: {design['prior_outcome'][0]}",
         f"- Opening (after confirming the company name): \"{design['opening_hook'][0]}\"",
         f"- Tone: {design['tone'][0]}",
         f"- Pace: {design['pace'][0]}",
@@ -266,6 +299,7 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         f"- If busy: {design['busy_handling'][0]}",
         f"- If price is asked: {design['price_question'][0]}",
         f"- Time capture: {design['time_capture'][0]}",
+        f"- 'Nahi' guard: {design['negation_guard'][0]}",
     ]
     if "what_you_know" in design:
         lines.append(f"- What you already know about this seller:\n{design['what_you_know'][0]}")
@@ -290,7 +324,7 @@ def generate(glid, now=None, write=True):
                                  bucket=str(bucket or "PUA"), callback_at=callback, last_disposition=last_disp,
                                  do_not_call=persona.get("do_not_call_requested") == 1, signals=signals)
     windows = top_windows(plan.ranked) if not plan.ranked.empty else []
-    design = conversation_design(profile, persona, hist, str(bucket or "PUA"), attempt_no, windows, now)
+    design = conversation_design(profile, persona, hist, str(bucket or "PUA"), attempt_no, windows, now, last_disp)
     seller_md, facts = sm.build(glid, now, windows) if sm.has_context(glid) else (None, {})
     if facts:
         add_global_context(design, facts)
@@ -308,12 +342,58 @@ def generate(glid, now=None, write=True):
         "vani_prompt_block": prompt,
         "seller_md": seller_md,
     }
+    out["tier"] = tier_for(plan.p_meeting)
+    out["jinja_vars"] = jinja_vars(out, design, persona, last_disp, hist, now)
     if write:
         json.dump(out, open(PLAN_DIR / f"{glid}.json", "w"), indent=2, default=str)
         (PLAN_DIR / f"{glid}.md").write_text(to_markdown(out))
         if seller_md:
             (sm.MD_DIR / f"{glid}.md").write_text(seller_md)
     return out, plan
+
+
+def tier_for(p):
+    """A-D tier from P(meeting) per dial (cut points learned on Apr-Aug, models/tiers.json)."""
+    path = ROOT / "models" / "tiers.json"
+    if p is None or not path.exists():
+        return None
+    c = json.load(open(path))
+    return "A" if p >= c["A"] else "B" if p >= c["B"] else "C" if p >= c["C"] else "D"
+
+
+def jinja_vars(out, design, persona, last_disp, hist, now):
+    """Variables for the production VANI Jinja2 template (names follow the scheduler spec)."""
+    last = hist.iloc[-1] if len(hist) else None
+    hrs = (pd.Timestamp(now) - last.call_start_time).total_seconds() / 3600 if last is not None else None
+    cb = None
+    if last_disp == "Call Later / Busy" and last is not None and pd.notna(last.lead_tbro_time):
+        cb = f"{last.lead_tbro_time:%I:%M %p}"
+    obj = persona.get("past_objections")
+    q = persona.get("past_questions_asked")
+    alts = pick_alternatives(out["when"]["top_windows"], now) if out["when"]["top_windows"] else []
+    know = design.get("what_you_know", ("", ""))[0]
+    return {
+        "attempt_no": out["attempt_no"], "prior_disposition": last_disp,
+        "hours_since_last": round(hrs, 1) if hrs is not None else None,
+        "past_objection_top": obj.split(" (")[0] if isinstance(obj, str) else None,
+        "past_question_top": q.split(" (")[0] if isinstance(q, str) else None,
+        "seller_frustrated": persona.get("showed_frustration") == 1,
+        "already_with_exec": persona.get("already_in_touch_with_executive") == 1,
+        "dnc_requested": persona.get("do_not_call_requested") == 1,
+        "tier": out.get("tier"), "callback_time": cb,
+        "callback_offer": " ya ".join(alts) if alts else "aaj shaam 6 baje",
+        "opening_hook": design["opening_hook"][0], "tone": design["tone"][0], "pace": design["pace"][0],
+        "language": design["language"][0],
+        "what_you_know": [k.strip()[2:] for k in know.splitlines() if k.strip().startswith("*")],
+        "best_windows": [w["slot"] for w in out["when"]["top_windows"][:3]],
+    }
+
+
+def render_jinja(vars_):
+    """Render templates/vani_scheduler_blocks.j2 (what the production prompt would include)."""
+    from jinja2 import Environment, FileSystemLoader
+    env = Environment(loader=FileSystemLoader(str(ROOT / "templates")), trim_blocks=True, lstrip_blocks=True)
+    return env.get_template("vani_scheduler_blocks.j2").render(**vars_)
 
 
 def to_markdown(o):
