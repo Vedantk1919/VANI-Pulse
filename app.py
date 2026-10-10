@@ -16,7 +16,7 @@ from src import prompt_gen as pg
 from src import sarvam
 from src import seller_md as sm
 
-st.set_page_config(page_title="VANI Best Time to Call", layout="wide", page_icon="📞")
+st.set_page_config(page_title="VANI Pulse", layout="wide", page_icon="📞")
 
 NAVY, AMBER, TEAL, GREY, RED = "#1F3A5F", "#E89F2E", "#1C7C7D", "#8A94A6", "#C0504D"
 OUTCOME_COLORS = alt.Scale(domain=["Meeting Fixed", "Call Later / Busy", "General (talked)", "Not Interested", "Not Answered"],
@@ -90,7 +90,8 @@ def kpi_row(items, widths=None):
 
 # ------------------------------------------------------------------ 1. overview
 def page_overview():
-    st.title("📞 VANI: Best Time to Call")
+    st.title("📞 VANI Pulse")
+    st.caption("Best Time to Call for VANI · IndiaMART Voice AI Hackathon 2.0, Problem 3")
     st.markdown("##### Call each seller at the right time, retry without irritating them, and open the call with what VANI already knows.")
     if rep:
         comb, base, d = rep["combined"], rep["retry_stop"]["baseline"], rep["retry_stop"]["default"]

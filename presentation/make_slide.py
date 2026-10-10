@@ -68,7 +68,7 @@ def text(x, y, w, h, runs, size=14, color=INK, font=BODY, bold=False, align=PP_A
 
 
 # title
-text(0.5, 0.35, 12.3, 0.6, "Best Time to Call: replace the fixed 15-minute redial", size=30, font=HEAD, bold=True)
+text(0.5, 0.35, 12.3, 0.6, "VANI Pulse: replace the fixed 15-minute redial", size=30, font=HEAD, bold=True)
 text(0.5, 0.98, 12.3, 0.4, "Problem 3 | trained Apr-Aug 2026, tested on held-out September (124,779 dials) | target: meetings fixed, not connects",
      size=14, color=GREY)
 

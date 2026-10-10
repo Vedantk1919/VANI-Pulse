@@ -1,4 +1,4 @@
-# Demo video script: Best Time to Call (Problem 3)
+# Demo video script: VANI Pulse (Problem 3, Best Time to Call)
 
 **Length:** about 6 min 45 s (the rules ask for 5 to 7 minutes).
 **Presenters:** Vedant and Meet.
@@ -54,7 +54,7 @@ We scored 260 sellers that have cross-channel memory, each at a real moment in S
 **Screen:** page **1 · Overview**, top of the page.
 
 **Meet:**
-> "Hi, I'm Meet, and this is Vedant. We picked Problem 3, Best Time to Call, for VANI, IndiaMART's voice bot that calls sellers to fix meetings. In six minutes we'll show what's wrong with today's calling schedule, what our model found in the data, and VANI calling a seller live on Sarvam with a plan built for that one seller."
+> "Hi, I'm Meet, and this is Vedant. This is **VANI Pulse**, our answer to Problem 3, Best Time to Call, for VANI, IndiaMART's voice bot that calls sellers to fix meetings. In six minutes we'll show what's wrong with today's calling schedule, what our model found in the data, and VANI calling a seller live on Sarvam with a plan built for that one seller."
 
 ---
 
@@ -182,7 +182,7 @@ We scored 260 sellers that have cross-channel memory, each at a real moment in S
 **Screen:** back to **1 · Overview**, or the one-slide summary (`presentation/best_time_to_call_one_slide.pptx`).
 
 **Meet:**
-> "To sum up: about one call in six saved, the same meetings or more, and sellers no longer redialled every 15 minutes. That's fewer irritated sellers and more meetings for IndiaMART.
+> "To sum up, VANI Pulse saves about one call in six, the same meetings or more, and sellers no longer redialled every 15 minutes. That's fewer irritated sellers and more meetings for IndiaMART.
 > One honest limit: the gains are estimated from data logged under the old schedule, so the next step is a 5% live A/B test before rolling out to everyone.
 > Code, README, skills.md and our Sarvam agent ID are in the submission. Thank you."
 

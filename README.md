@@ -1,4 +1,6 @@
-# VANI: Best Time to Call
+# VANI Pulse
+
+*Best Time to Call for VANI: the right time, the right words, every seller.*
 
 IndiaMART Voice AI Hackathon 2.0, **Problem 3: Best Time to Call**.
 
