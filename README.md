@@ -198,6 +198,26 @@ SARVAM_API_KEY=... .venv/bin/streamlit run app.py # dashboard (audio needs the k
 - The Global Context seller files are read from `data/gc/`. Override with `BTC_GC_DIR`.
 - Seller data is internal to IndiaMART: don't copy `data/` or `outputs/plans/` off premises.
 
+## Test the VANI agent on Sarvam with any GLID (no hosting)
+
+`src/sarvam_live.py` builds the chosen seller's plan and prompt block locally. It then starts a Sarvam session with the block passed in as agent variables, using Sarvam's conversation SDK.
+
+1. **Create the agent on Sarvam.** On indus.sarvam.ai, create an agent and use `outputs/sarvam_test/agent_base_prompt.md` as its prompt. On the Variables tab, add `seller_block` and `company_name`, then commit a version.
+2. **Set the credentials:**
+   ```bash
+   export SARVAM_API_KEY=... SARVAM_ORG_ID=... SARVAM_WORKSPACE_ID=... SARVAM_APP_ID=...
+   ```
+3. **Run it:**
+   ```bash
+   .venv/bin/python -m src.sarvam_live <GLID> --at 2026-09-18T19:38            # dry run: shows the plan and variables
+   .venv/bin/python -m src.sarvam_live <GLID> --at ... --mode chat             # type as the seller
+   .venv/bin/python -m src.sarvam_live <GLID> --at ... --mode script           # 11-line test conversation, saves transcript
+   .venv/bin/python -m src.sarvam_live <GLID> --at ... --mode call             # voice via laptop mic (needs PyAudio/PortAudio)
+   ```
+   Use `--company "Made-up Name"` when recording a demo.
+
+**Hosting is only needed for production.** Sarvam's on-start hook would fetch the seller block at call time, so the planner would run as an internal IndiaMART service; seller data must not go to a public host.
+
 ## Outputs
 
 | Path | What it holds |

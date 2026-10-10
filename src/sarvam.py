@@ -18,7 +18,7 @@ def available():
 
 
 def pace_from_design(design):
-    m = re.search(r"TTS pace ([0-9.]+)", design.get("pace", {}).get("instruction", ""))
+    m = re.search(r"TTS pace ([0-9]+(?:\.[0-9]+)?)", design.get("pace", {}).get("instruction", ""))
     return float(m.group(1)) if m else 1.0
 
 

@@ -8,3 +8,4 @@ requests>=2.31
 scikit-learn>=1.4
 streamlit>=1.40
 xgboost>=2.0
+sarvam-conv-ai-sdk>=1.1
