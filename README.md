@@ -52,6 +52,19 @@ Each decision comes with the evidence behind it. The output is a seller-specific
 
 The ensemble is best on every accuracy metric, by a small margin. The three boosted models are statistically tied on slot ranking. Logistic regression is clearly weaker at ranking retry slots.
 
+## Problem 3 brief: how each requirement is met
+
+| Brief requirement | Where |
+|---|---|
+| 3.1 Ranked call windows per seller (hour × day of week, with scores) | `python -m src.windows <GLID>` and the dashboard; `src/windows.py::weekly_windows` |
+| 3.1 Little or no history | Segment features (state, category, turnover, business type, GST year) carry new sellers. Model AUC by past dials: 0 (new): 0.6231, 1-2: 0.6963, 3-5: 0.7108, 6+: 0.7434; calibrated in every group. A seller's top-3 windows overlap ~66% between half and full history, so windows are stable even for new sellers |
+| 3.2 Retry delay per attempt, and when to stop | `retry_ladder()`: the full plan if calls keep going unanswered, with gap curve, guardrails and stop rule |
+| 3.3 Evidence and verdict on the 15-minute rule | **[RECOMMENDATION.md](RECOMMENDATION.md)**: **CHANGE** |
+| 3.4 Optimise for meetings fixed; handle imbalance | The target is `meeting_fixed` (5.9% of dials). We predict calibrated probabilities with log-loss (no resampling, which would distort the probabilities the stop rule relies on) and judge on AUC, PR-AUC, top-decile lift, calibration and per-tier meeting rates. `meeting_done` isn't in the data; quality is checked with the `incorrect_mf` evaluator |
+| 3.5 Time-based split, bias from the old schedule, lift on held-out data | Train Apr–Aug, test September; slot-quality check on real outcomes; off-policy IPS: +17.9% (CI 3.4 to 35.9) |
+| FAQ Q2 time zone | All sellers assumed to be on IST; state and city are features |
+| One-slide presentation | `presentation/best_time_to_call_one_slide.pptx` (rebuild: `python presentation/make_slide.py`) |
+
 ## Global Context: memory across channels (Problem 2, integrated)
 
 Before each call, VANI loads a short **`seller.md`** for the seller (about 260 tokens). It's built from a single event timeline that combines enquiries, enquiry replies, buyer calls, buyleads, WhatsApp messages and chatbot chats, past VANI calls and executive calls. The data is the Global Context sample: 5,000 sellers, Apr–Oct 2026. Raw message text and phone numbers are never copied; only counts, products, cities, intents and scrubbed call outcomes.

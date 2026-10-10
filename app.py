@@ -77,6 +77,15 @@ def render_plan():
                      alt.Tooltip("gap_factor:Q", format=".2f"), "blocked_reason"]).properties(height=260)
         st.altair_chart(ch, width="stretch")
 
+    with st.expander("Weekly call windows and retry ladder (brief 3.1 / 3.2)"):
+        from src import windows as win
+        wk, meta = win.weekly_windows(int(glid), now)
+        st.caption(f"Past dials: {meta['past_dials']} | confidence: {meta['confidence']}")
+        st.dataframe(wk.assign(p_meeting=lambda d: d.p_meeting.map("{:.2%}".format),
+                               p_answer=lambda d: d.p_answer.map("{:.0%}".format)), width="stretch", hide_index=True)
+        st.caption("If calls keep going unanswered:")
+        st.dataframe(pd.DataFrame(win.retry_ladder(int(glid), now)), width="stretch", hide_index=True)
+
     st.subheader("How VANI should talk to this seller")
     for k, v in out["how"].items():
         st.markdown(f"**{k.replace('_', ' ').capitalize()}**: {v['instruction']}  \n<span style='color:gray'>why: {v['reason']}</span>",
