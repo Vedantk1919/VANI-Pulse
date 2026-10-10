@@ -13,3 +13,6 @@ outputs/*
 *.parquet
 *.zip
 *.log
+
+# demo video script (kept local)
+DEMO_SCRIPT.md

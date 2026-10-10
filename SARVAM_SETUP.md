@@ -168,5 +168,5 @@ VANI's first real reply should mention **this seller's** details (3 enquiries, 1
 
 ## For the submission
 - **Agent ID / live link:** from step A5 (or B2).
-- **Demo video:** record the dashboard plus a test conversation (DEMO_SCRIPT.md). Turn on **🎬 Recording mode** in the dashboard and use made-up company names.
+- **Demo video:** record the dashboard plus a test conversation. Turn on **🎬 Recording mode** in the dashboard and use made-up company names.
 - **Afterwards:** regenerate the API key on dashboard.sarvam.ai, since it has been shared in chat.
