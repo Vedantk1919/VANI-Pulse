@@ -221,11 +221,12 @@ The pages follow the demo story:
 
 1. **Overview:** the problem, what we built, headline KPIs and an architecture diagram.
 2. **What the data says:** six charts from 530k dials and a table of transcript findings.
-3. **Demo sellers:** 10 curated real sellers, one per scenario. Each has a profile, every dial and other-channel activity, the plan with blocked slots, weekly windows, the retry ladder, *before vs after* (what the current system did next vs our plan), `seller.md`, the VANI prompt with the reason for each instruction, and a write-back demo.
-4. **Talk to VANI:** a live conversation with VANI for the selected seller, by voice (browser mic) or text, with one-click test lines, the behaviour to expect, the language detected on each turn, auto-played replies and a transcript download. It runs on Sarvam with just an `sk_` API key: Saaras speech-to-text → Sarvam LLM (`sarvam-105b-conversations`) with the same VANI prompt → Bulbul text-to-speech (`src/vani_engine.py`).
-5. **Results & validation:** backtest, 15-minute verdict, model comparison and checks, Global Context tests.
+3. **Best time to call & the 15-minute rule:** an hour × day heatmap of meeting rates, the best window for each segment, today's rule vs ours side by side with the evidence and the September replay, and, for the selected seller, their own best-window heatmap plus their retry ladder under the fixed 15-minute rule vs ours.
+4. **Demo sellers:** 10 curated real sellers, one per scenario. Each has a profile, every dial and other-channel activity, the plan with blocked slots, weekly windows, the retry ladder, *before vs after* (what the current system did next vs our plan), `seller.md`, the VANI prompt with the reason for each instruction, and a write-back demo.
+5. **Talk to VANI:** a live conversation with VANI for the selected seller, by voice (browser mic) or text, with one-click test lines, the behaviour to expect, the language detected on each turn, auto-played replies and a transcript download. It runs on Sarvam with just an `sk_` API key: Saaras speech-to-text → Sarvam LLM (`sarvam-105b-conversations`) with the same VANI prompt → Bulbul text-to-speech (`src/vani_engine.py`).
+6. **Results & validation:** backtest, 15-minute verdict, model comparison and checks, Global Context tests.
 
-**🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=3&s=1` opens page 3 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script and **[SARVAM_SETUP.md](SARVAM_SETUP.md)** to connect the agent on Sarvam.
+**🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=4&s=1` opens page 4 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script and **[SARVAM_SETUP.md](SARVAM_SETUP.md)** to connect the agent on Sarvam.
 
 ## Talk to VANI with only an API key (`src/vani_engine.py`)
 

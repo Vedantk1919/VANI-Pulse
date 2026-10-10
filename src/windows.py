@@ -184,3 +184,42 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def full_week_grid(glid, at=None):
+    """Every hour x weekday slot for this seller's next attempt, scored (for a heatmap)."""
+    w, meta = weekly_windows(glid, at, top=7 * len(CALL_HOURS))
+    w = w.assign(day=w.window.str[:3], hour=w.window.str[4:6].astype(int))
+    return w, meta
+
+
+def fifteen_minute_ladder(glid, at=None, attempts=policy.MAX_ATTEMPTS):
+    """What the fixed rule does: redial every 15 minutes after a no-answer. Each dial is scored with
+    the same time-of-day model x retry-gap factor as our plan, so the two ladders are comparable."""
+    at = at or datetime.fromisoformat(TEST_START)
+    hist, profile, _ = pg.seller_context(glid, at)
+    attempt_no, *_ = pg._episode_state(hist, at)
+    model = pg._model()
+    steps, t = [], at
+    for i in range(attempts):
+        n = attempt_no + i
+        c = policy.build_candidates(hist, profile, t, n, lead_sent=t if n == 1 else None, days=0)
+        row = c.iloc[[0]].copy()
+        p = model.predict_slot(row)
+        gap = None if i == 0 else 0.25
+        factor = 1.0 if gap is None else float(model.gap_factor([gap])[0])
+        steps.append({"attempt": n, "when": t.strftime("%a %d %b %H:%M"),
+                      "hours_after_previous": gap,
+                      "p_answer": round(float(p.p_answer.iloc[0]), 3),
+                      "p_meeting": round(float(p.p_meeting.iloc[0]) * factor, 4)})
+        t = t + timedelta(minutes=15)
+    return steps
+
+
+def ladder_comparison(glid, at=None):
+    """Fixed 15-minute rule vs our retry ladder for the same seller and moment."""
+    ours = [s for s in retry_ladder(glid, at) if s["action"] == "CALL"]
+    fixed = fifteen_minute_ladder(glid, at, attempts=max(len(ours), 1))
+    return {"fixed_15min": fixed, "ours": ours,
+            "expected_meetings_fixed": round(sum(s["p_meeting"] for s in fixed), 4),
+            "expected_meetings_ours": round(sum(s["p_meeting"] for s in ours), 4)}

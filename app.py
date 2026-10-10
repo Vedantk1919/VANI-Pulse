@@ -40,7 +40,8 @@ def warm():
 rep, mrep, ana, brief = load_json("backtest_report.json"), load_json("model_report.json"), load_json("analysis.json"), load_json("brief_report.json")
 
 # ------------------------------------------------------------------ sidebar: page + seller
-PAGES = ["1 · Overview", "2 · What the data says", "3 · Demo sellers", "4 · Talk to VANI (Sarvam)", "5 · Results & validation"]
+PAGES = ["1 · Overview", "2 · What the data says", "3 · Best time to call & 15-min rule", "4 · Demo sellers",
+         "5 · Talk to VANI (Sarvam)", "6 · Results & validation"]
 qp = st.query_params                      # direct links: ?p=3&s=2 opens page 3 with demo seller 2
 page = st.sidebar.radio("Demo flow", PAGES, label_visibility="collapsed",
                         index=min(max(int(qp.get("p", 1)) - 1, 0), len(PAGES) - 1))
@@ -207,6 +208,169 @@ def page_analysis():
 | "nahi" alone | **not a refusal** (in 54% of calls that fixed a meeting); real negatives: "interest nahi" 0.31×, "call mat karo" 0.37× |
 """)
     source("turns", "bot_calls", extra="hook types matched to lead type (redis_bucket) from Call Attempts")
+
+
+# ------------------------------------------------------------------ 3. best time + 15-minute rule
+DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def page_best_time():
+    warm()
+    from src import windows as win
+    st.title("Best time to call & the 15-minute rule")
+    st.markdown("##### When should VANI call a seller, and what should it do when the call isn't picked up?")
+
+    # ---- A. when to call
+    st.header("1 · When to call")
+    hd = pd.DataFrame(ana["hour_dow_first_attempt"])
+    hd["day"] = hd.dow.map(lambda d: DAY_NAMES[int(d)])
+    hd["hour_label"] = hd.hour.astype(int).map(lambda h: f"{h}:00")
+    c1, c2 = st.columns([1.35, 1])
+    with c1:
+        heat = alt.Chart(hd).mark_rect().encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)], title="hour of day"),
+            y=alt.Y("day:O", sort=DAY_NAMES, title=None, axis=alt.Axis(labelOverlap=False)),
+            color=alt.Color("meeting_rate:Q", scale=alt.Scale(scheme="oranges"), legend=alt.Legend(format="%", title="meeting rate")),
+            tooltip=["day", "hour_label", alt.Tooltip("meeting_rate:Q", format=".1%"), alt.Tooltip("answer_rate:Q", format=".0%"), "dials"])
+        txt = alt.Chart(hd).mark_text(fontSize=9).encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)]), y=alt.Y("day:O", sort=DAY_NAMES),
+            text=alt.Text("meeting_rate:Q", format=".0%"),
+            color=alt.condition(alt.datum.meeting_rate > 0.115, alt.value("white"), alt.value("#333")))
+        st.altair_chart((heat + txt).properties(height=320, title="First calls: meeting rate by hour × day (Apr–Sep 2026)"),
+                        width="stretch")
+        source("attempts", extra="first attempts only, so retries don't distort the hours")
+    with c2:
+        st.markdown("""
+**What the heatmap says**
+- **Evening (6–9 PM) converts best** on every day of the week.
+- **9–10 AM is the worst hour**: mostly the overnight backlog dialled at once.
+- **Saturdays and Sundays** convert as well as weekdays, or better.
+- The model uses this pattern plus each seller's segment and history to rank every slot (sidebar seller → section 3 below).""")
+        bw = pd.DataFrame(ana["best_window_by_segment"])
+        bw = bw[bw.value != "NA"]
+        n_eve = int((bw.best_window == "18-21").sum())
+        st.metric("Segments whose best window is 6–9 PM", f"{n_eve} of {len(bw)}")
+        st.caption("The exceptions matter: **limited companies convert best 10 AM–12 PM**; a few categories too.")
+    seg_type = st.radio("Best window by segment", sorted(bw.segment.unique()), horizontal=True, index=1)
+    show = bw[bw.segment == seg_type].sort_values("first_calls", ascending=False)
+    st.dataframe(show.rename(columns={"value": seg_type, "first_calls": "first calls", "best_window": "best window",
+                                      "best_meeting_rate": "meeting rate (best)", "second_best": "2nd best",
+                                      "worst_window": "worst window", "worst_meeting_rate": "meeting rate (worst)"})
+                 .drop(columns="segment").style.format({"meeting rate (best)": "{:.1%}", "meeting rate (worst)": "{:.1%}"}),
+                 width="stretch", hide_index=True)
+    source("attempts", "sellers", extra="first attempts; windows with at least 300 calls")
+
+    # ---- B. the 15-minute rule
+    st.header("2 · The 15-minute rule")
+    v1, v2 = st.columns(2)
+    with v1:
+        st.markdown(f"""
+<div style="background:#F6E7E6;border-radius:10px;padding:16px 20px;height:100%">
+<div style="font-size:0.85em;color:{RED};font-weight:600">TODAY</div>
+<div style="font-size:1.3em;font-weight:700;margin:4px 0 8px">Redial after a fixed 15 minutes</div>
+• Same gap for every seller, every time of day<br>• No limit on dials per day<br>• No reason to stop<br>
+• A missed call at 7:38 PM means calls at 7:53, 8:08, 8:23…
+</div>""", unsafe_allow_html=True)
+    with v2:
+        st.markdown(f"""
+<div style="background:#E3F1F1;border-radius:10px;padding:16px 20px;height:100%">
+<div style="font-size:0.85em;color:{TEAL};font-weight:600">OUR RECOMMENDATION: CHANGE</div>
+<div style="font-size:1.3em;font-weight:700;margin:4px 0 8px">Retry by evidence, not by a fixed clock</div>
+• <b>No redial within 30 minutes</b><br>• Retry <b>same day, 1–2 h or 4–8 h later</b>, in the seller's best-scored slot<br>
+• <b>Max 3 dials per 24 h, 5 per lead</b>; stop when P(meeting) &lt; 1%<br>• Callback requested → call at that time
+</div>""", unsafe_allow_html=True)
+    st.write("")
+    g = pd.DataFrame(ana["retry_gap"])
+    g["kind"] = g.gap.map(lambda x: "fixed rule zone" if x == "<30m" else "recommended" if x in ("1-2h", "4-8h") else "other")
+    ch = alt.Chart(g).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+        x=alt.X("gap:N", sort=list(g.gap), title="time between a missed call and the retry"),
+        y=alt.Y("meeting_rate:Q", axis=alt.Axis(format="%"), title="meeting rate of the retry"),
+        color=alt.Color("kind:N", scale=alt.Scale(domain=["fixed rule zone", "recommended", "other"], range=[RED, TEAL, "#B8C2CE"]),
+                        legend=alt.Legend(orient="top", title=None)),
+        tooltip=["gap", alt.Tooltip("meeting_rate:Q", format=".2%"), alt.Tooltip("answer_rate:Q", format=".0%"), "dials"])
+    lab = ch.mark_text(dy=-7, fontSize=10, color="#333").encode(text=alt.Text("meeting_rate:Q", format=".1%"))
+    c1, c2 = st.columns([1.3, 1])
+    with c1:
+        st.altair_chart((ch + lab).properties(height=280, title="Retries after a no-answer: how long to wait"), width="stretch")
+        source("attempts", extra="all retries after a 'Not Answered', Apr–Sep 2026")
+    with c2:
+        if brief:
+            seg = pd.DataFrame(brief["short_redial_by_segment"])
+            seg = seg[(seg.segment == "business_type") & (seg.value != "NA")].pivot_table(index="value", columns="gap", values="meeting").dropna()
+            st.markdown("**Short redials lose in every segment** (meeting rate of the retry)")
+            st.dataframe(seg[[c for c in ["<30 min", "30-60 min", "1-2 h"] if c in seg.columns]].style.format("{:.1%}"),
+                         width="stretch")
+            source("brief", "attempts", "sellers")
+        f = pd.DataFrame(ana["frustration_by_dials_24h"])
+        st.markdown(f"**And repeated dials irritate:** frustration in transcripts goes from "
+                    f"**{f.frustration_rate.iloc[0]:.1%}** (no dial in the last 24 h) to **{f.frustration_rate.iloc[-1]:.1%}** (5+ dials).")
+        source("turns", "attempts")
+    if rep:
+        b, comb = rep["retry_stop"], rep["combined"]
+        c0 = b["baseline"]["answered"] / b["baseline"]["dials"]
+        st.markdown("**What changes on held-out September 2026** (replay of 124,779 real dials)")
+        tbl = pd.DataFrame([
+            {"": "Dials", "Current schedule": f"{b['baseline']['dials']:,}", "Our rules": f"{comb['dials']:,}",
+             "Change": f"{comb['dials_vs_baseline_pct']}%"},
+            {"": "Meetings fixed", "Current schedule": f"{b['baseline']['meetings']:,}", "Our rules": f"~{comb['estimated_meetings']:,.0f}",
+             "Change": f"{comb['meetings_vs_baseline_pct']:+}% (est.)"},
+            {"": "Calls per meeting", "Current schedule": f"{b['baseline']['calls_per_meeting']}", "Our rules": f"{comb['calls_per_meeting']}",
+             "Change": f"{100 * (comb['calls_per_meeting'] / b['baseline']['calls_per_meeting'] - 1):+.0f}%"},
+            {"": "Connect rate", "Current schedule": f"{c0:.1%}", "Our rules": f"{b['default']['connect_rate']:.1%}",
+             "Change": f"{100 * (b['default']['connect_rate'] - c0):+.1f} pp"},
+            {"": "Dials to sellers already called 3+ times in 24 h", "Current schedule": f"{b['baseline']['dials_with_3plus_in_24h']:,}",
+             "Our rules": "0", "Change": "−100%"}])
+        st.dataframe(tbl, width="stretch", hide_index=True)
+        source("backtest", extra="stop + anti-irritation rules replayed on actual Sept sequences; re-timing is a model estimate")
+
+    # ---- C. this seller
+    st.header("3 · For the seller under test")
+    if not glid:
+        st.info("Pick a demo seller in the sidebar.")
+        return
+    st.caption(mask(f"GLID {glid}") + (f" · {scenario['scenario']}" if scenario else "") + f" · as of {at:%a %d %b %Y %H:%M}")
+    grid, meta = win.full_week_grid(int(glid), at)
+    c1, c2 = st.columns([1.35, 1])
+    with c1:
+        grid["hour_label"] = grid.hour.map(lambda h: f"{h}:00")
+        hm = alt.Chart(grid).mark_rect().encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)], title="hour of day"),
+            y=alt.Y("day:O", sort=DAY_NAMES, title=None, axis=alt.Axis(labelOverlap=False)),
+            color=alt.Color("p_meeting:Q", scale=alt.Scale(scheme="blues"), legend=alt.Legend(format=".1%", title="P(meeting)")),
+            tooltip=["window", alt.Tooltip("p_meeting:Q", format=".2%"), alt.Tooltip("p_answer:Q", format=".0%"), "rank"])
+        top = grid[grid["rank"] <= 3]
+        ring = alt.Chart(top).mark_rect(fill=None, stroke=AMBER, strokeWidth=3).encode(
+            x=alt.X("hour_label:O", sort=[f"{h}:00" for h in range(9, 21)]), y=alt.Y("day:O", sort=DAY_NAMES))
+        st.altair_chart((hm + ring).properties(height=300, title="This seller's best windows (orange = top 3)"), width="stretch")
+        source("model", "attempts", "sellers", extra=f"confidence: {meta['confidence']} ({meta['past_dials']} past dials)")
+    with c2:
+        st.markdown("**Top windows**")
+        st.dataframe(grid.head(5)[["rank", "window", "p_meeting", "p_answer"]].style.format({"p_meeting": "{:.2%}", "p_answer": "{:.0%}"}),
+                     width="stretch", hide_index=True)
+    comp = win.ladder_comparison(int(glid), at)
+    st.markdown("**If this seller doesn't pick up: fixed 15-minute rule vs our retry ladder**")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"<span style='color:{RED};font-weight:600'>Fixed 15-minute rule</span>", unsafe_allow_html=True)
+        st.dataframe(pd.DataFrame(comp["fixed_15min"])[["attempt", "when", "hours_after_previous", "p_meeting"]]
+                     .style.format({"p_meeting": "{:.2%}"}), width="stretch", hide_index=True)
+    with c2:
+        st.markdown(f"<span style='color:{TEAL};font-weight:600'>Our ladder</span>", unsafe_allow_html=True)
+        ours = pd.DataFrame(comp["ours"])
+        if len(ours):
+            st.dataframe(ours[["attempt", "when", "hours_after_previous", "p_meeting"]].style.format({"p_meeting": "{:.2%}"}),
+                         width="stretch", hide_index=True)
+        else:
+            st.caption("Our plan stops here (see the Demo sellers page for why).")
+    ef, eo = comp["expected_meetings_fixed"], comp["expected_meetings_ours"]
+    if ef and eo:
+        k = st.columns(3)
+        k[0].metric("Expected meetings, fixed rule", f"{ef:.3f}")
+        k[1].metric("Expected meetings, our ladder", f"{eo:.3f}", f"{100 * (eo / ef - 1):+.0f}%")
+        k[2].metric("Dials within the first hour", f"{sum(1 for s in comp['fixed_15min'])} vs "
+                    f"{sum(1 for s in comp['ours'] if (s['hours_after_previous'] or 0) < 1)}")
+    source("model", extra="same time-of-day model and retry-gap factor for both ladders; the factor for <30 min is "
+                          "shrunk to 0.57× (raw data: 0.05×), so this comparison favours the fixed rule")
 
 
 # ------------------------------------------------------------------ 3. demo sellers
@@ -583,8 +747,8 @@ def page_results():
             source("gc_eval", "gc", "attempts")
 
 
-{PAGES[0]: page_overview, PAGES[1]: page_analysis, PAGES[2]: page_demo,
- PAGES[3]: page_talk, PAGES[4]: page_results}[page]()
+{PAGES[0]: page_overview, PAGES[1]: page_analysis, PAGES[2]: page_best_time, PAGES[3]: page_demo,
+ PAGES[4]: page_talk, PAGES[5]: page_results}[page]()
 st.sidebar.divider()
 with st.sidebar.expander("📁 Data sources"):
     for k, (name, what) in ds.SOURCES.items():

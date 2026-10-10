@@ -61,6 +61,30 @@ def main():
         g.insert(0, "segment", col)
         seg += g.round(4).to_dict("records")
     rep["segments_first_attempt"] = seg
+    # best time to call: hour x day-of-week heatmap (first attempts) and best band per segment
+    f9 = first[first.hour.between(9, 20)]
+    hd = f9.groupby([f9.call_start_time.dt.dayofweek.rename("dow"), "hour"]).agg(
+        dials=("mf", "size"), meeting_rate=("mf", "mean"), answer_rate=("ans", "mean")).reset_index()
+    rep["hour_dow_first_attempt"] = hd.round(4).to_dict("records")
+    bands = {9: "09-10", 10: "10-12", 11: "10-12", 12: "12-14", 13: "12-14", 14: "14-16", 15: "14-16",
+             16: "16-18", 17: "16-18", 18: "18-21", 19: "18-21", 20: "18-21"}
+    f9 = f9.assign(band=f9.hour.map(bands))
+    best = []
+    for col, label in (("business_type", "Business type"), ("annual_turnover", "Turnover"),
+                       ("seller_state", "State"), ("top_category_group", "Category group")):
+        g = f9.groupby([col, "band"]).agg(n=("mf", "size"), meeting_rate=("mf", "mean")).reset_index()
+        g = g[g.n >= 300]
+        tot = f9.groupby(col).size()
+        for v, gg in g.groupby(col):
+            if tot.get(v, 0) < 3000 or len(gg) < 4:
+                continue
+            gg = gg.sort_values("meeting_rate", ascending=False)
+            worst = gg.iloc[-1]
+            best.append({"segment": label, "value": v, "first_calls": int(tot[v]),
+                         "best_window": gg.iloc[0].band, "best_meeting_rate": round(float(gg.iloc[0].meeting_rate), 4),
+                         "second_best": gg.iloc[1].band, "worst_window": worst.band,
+                         "worst_meeting_rate": round(float(worst.meeting_rate), 4)})
+    rep["best_window_by_segment"] = best
     json.dump(rep, open(OUT_DIR / "analysis.json", "w"), indent=2, default=float)
     print({k: (v if k == "totals" else len(v)) for k, v in rep.items()})
 
