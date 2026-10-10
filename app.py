@@ -392,7 +392,6 @@ def mask(text, g=None, at_=None):
 def page_talk():
     warm()
     from src import sarvam_live as sl
-    from src.sarvam_chat import ChatSession, missing_env
     st.title("Talk to VANI on Sarvam")
     if not glid:
         st.info("Pick a demo seller in the sidebar first.")
@@ -407,7 +406,7 @@ def page_talk():
         st.markdown("**Try these as the seller**")
         exp = {"memory / hook": "Gives the real-number hook, asks for a time", "busy -> best times": "Stops and offers the 2 best windows",
                "'nahi' guard": "Does NOT end the call", "irritated": "Apologises once, offers a callback",
-               "rushed": "Asks for the time directly", "confused": "Repeats in simpler words", "language switch": "Continues in English",
+               "rushed": "Asks for the time directly", "confused": "Repeats in simpler words", "language switch": "Switches to English (and back)",
                "time capture": "Reads back '4 se 5 ke beech'", "identity": "Honest one-liner, then the ask",
                "refusal": "Thanks and ends politely", "do-not-call": "Apologises, ends, tags do_not_call"}
         st.dataframe(pd.DataFrame([{"you say": v, "VANI should": exp[k]} for k, v in sl.TEST_LINES]),
@@ -418,56 +417,72 @@ def page_talk():
         with st.expander("Prompt block VANI receives"):
             st.code(mask(sess["variables"]["seller_block"]), language="markdown")
     with left:
-        miss = missing_env()
-        if miss:
-            st.warning("Live chat needs the Sarvam agent IDs: set " + ", ".join(miss) +
-                       " before starting the dashboard (see README → 'Test the VANI agent on Sarvam').")
-            st.markdown("**Without the keys you can still:** copy the prompt above into the agent on "
-                        "[indus.sarvam.ai](https://indus.sarvam.ai) and use its **Test agent** button.")
-        key = f"chat_{glid}_{at:%Y%m%d%H%M}"
-        chat = st.session_state.get(key)
-        b1, b2, b3 = st.columns(3)
-        if b1.button("▶ Start conversation", type="primary", disabled=bool(miss) or (chat is not None and chat.connected)):
-            chat = ChatSession(sess)
-            with st.spinner("Connecting to Sarvam…"):
-                chat.start()
-            st.session_state[key] = chat
-        if b2.button("■ End", disabled=chat is None or not chat.connected):
-            chat.stop()
-        if chat and chat.messages:
-            b3.download_button("Save transcript", "\n".join(f"{w_}: {t_}" for w_, t_ in chat.messages),
-                               file_name=f"vani_{glid}.txt")
-        if chat and chat.error:
-            st.error(chat.error)
-        msgs = chat.messages if chat else [("VANI", sess["greeting"])]
-        for who, text in msgs:
+        from src.vani_engine import VaniConversation, LLM_MODEL, STT_MODEL
+        if not sarvam.available():
+            st.warning("Set SARVAM_API_KEY before starting the dashboard (your sk_ key works).")
+            return
+        key = f"conv_{glid}_{at:%Y%m%d%H%M}_{company}"
+        conv = st.session_state.get(key)
+        b1, b2, b3 = st.columns([1.2, 1, 1])
+        speak = b3.toggle("🔊 Speak replies", value=True)
+        if b1.button("▶ Start conversation" if conv is None else "↺ Restart", type="primary"):
+            conv = VaniConversation(sess, company or None)
+            st.session_state[key] = conv
+            st.session_state.pop("last_audio", None)
+            if speak:
+                try:
+                    st.session_state["last_audio"] = conv.speak(sess["greeting"])
+                except Exception as e:
+                    st.error(f"Sarvam TTS failed: {e}")
+        if conv is not None:
+            b2.download_button("Save transcript", conv.transcript(), file_name=f"vani_conversation_{glid}.txt")
+
+        def turn(text, stt_lang=None):
+            try:
+                with st.spinner("VANI is replying…"):
+                    reply = conv.send(text, stt_lang)
+                    if speak:
+                        st.session_state["last_audio"] = conv.speak(reply)
+            except Exception as e:
+                st.session_state["turn_error"] = f"{type(e).__name__}: {e}"
+            st.rerun()
+
+        if st.session_state.get("turn_error"):
+            st.error(st.session_state.pop("turn_error"))
+        msgs = conv.messages if conv else [("VANI", sess["greeting"], sess["language"])]
+        for who, text, lang in msgs:
             with st.chat_message("assistant" if who == "VANI" else "user", avatar="📞" if who == "VANI" else "🧑‍💼"):
                 st.write(mask(text))
-        if chat and chat.connected:
+                if who == "SELLER":
+                    st.caption(f"detected: {lang}")
+        if st.session_state.get("last_audio"):
+            st.audio(st.session_state.pop("last_audio"), format="audio/wav", autoplay=True)
+        if conv is None:
+            st.info("Press **▶ Start conversation**, then speak or type as the seller.")
+        else:
+            voice = st.audio_input("🎙 Speak as the seller (Hindi, Hinglish or English)", key=f"mic_{key}_{len(conv.messages)}")
+            if voice is not None:
+                try:
+                    with st.spinner("Transcribing (Saaras)…"):
+                        text, lang_code = VaniConversation.transcribe(voice.getvalue())
+                except Exception as e:
+                    st.error(f"Sarvam speech-to-text failed: {e}")
+                    text = ""
+                if text.strip():
+                    turn(text, lang_code)
             qcols = st.columns(4)
             for i, (label, line) in enumerate(sl.TEST_LINES):
                 if qcols[i % 4].button(label, key=f"q{i}"):
-                    with st.spinner("VANI is replying…"):
-                        chat.send(line)
-                    st.rerun()
-            said = st.chat_input("Type as the seller…")
+                    turn(line)
+            said = st.chat_input("…or type as the seller")
             if said:
-                with st.spinner("VANI is replying…"):
-                    chat.send(said)
-                st.rerun()
-        st.divider()
-        st.markdown("**Hear the opening in VANI's voice (Sarvam Bulbul, this seller's pace)**")
-        source("model", "gc", extra="voice: Sarvam text-to-speech, bulbul:v3")
-        script = sarvam.opening_script(sess["plan"], company or "aapki company")
-        st.write(mask(script))
-        if sarvam.available():
-            if st.button("🔊 Speak opening"):
-                try:
-                    st.audio(sarvam.tts(script, sarvam.language_from_design(sess["plan"]["how"]), sess["pace"]), format="audio/wav")
-                except Exception as e:
-                    st.error(f"Sarvam TTS failed: {e}")
-        else:
-            st.caption("Set SARVAM_API_KEY to play it.")
+                turn(said)
+            lat = sorted(conv.latency)
+            st.caption(f"Median reply time {lat[len(lat) // 2]:.2f}s" if lat else "No replies yet"
+                       + (f" · outcome tags: {', '.join(sorted(conv.tags))}" if conv.tags else ""))
+        st.caption(f"Runs on Sarvam: speech-to-text {STT_MODEL} (language auto-detect) → LLM {LLM_MODEL} with the "
+                   f"same VANI prompt as the Sarvam agents → text-to-speech bulbul:v3 at this seller's pace. "
+                   f"Language is re-detected on every seller turn.")
 
 
 # ------------------------------------------------------------------ 5. results

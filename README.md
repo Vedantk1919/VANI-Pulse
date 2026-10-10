@@ -222,10 +222,33 @@ The pages follow the demo story:
 1. **Overview:** the problem, what we built, headline KPIs and an architecture diagram.
 2. **What the data says:** six charts from 530k dials and a table of transcript findings.
 3. **Demo sellers:** 10 curated real sellers, one per scenario. Each has a profile, every dial and other-channel activity, the plan with blocked slots, weekly windows, the retry ladder, *before vs after* (what the current system did next vs our plan), `seller.md`, the VANI prompt with the reason for each instruction, and a write-back demo.
-4. **Talk to VANI:** a live Sarvam chat seeded with the selected seller's prompt, one-click test lines with the behaviour to expect, a transcript download, and "Speak opening" (Bulbul TTS).
+4. **Talk to VANI:** a live conversation with VANI for the selected seller, by voice (browser mic) or text, with one-click test lines, the behaviour to expect, the language detected on each turn, auto-played replies and a transcript download. It runs on Sarvam with just an `sk_` API key: Saaras speech-to-text → Sarvam LLM (`sarvam-105b-conversations`) with the same VANI prompt → Bulbul text-to-speech (`src/vani_engine.py`).
 5. **Results & validation:** backtest, 15-minute verdict, model comparison and checks, Global Context tests.
 
 **🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=3&s=1` opens page 3 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script and **[SARVAM_SETUP.md](SARVAM_SETUP.md)** to connect the agent on Sarvam.
+
+## Talk to VANI with only an API key (`src/vani_engine.py`)
+
+The Sarvam agents runtime rejects `sk_` developer keys ("Invalid API key format"), so the dashboard builds VANI from Sarvam's developer APIs instead, all of which accept the key:
+
+| Step | Sarvam API |
+|---|---|
+| Seller speaks | `saaras:v4` speech-to-text, with language auto-detect |
+| VANI thinks | `sarvam-105b-conversations` chat completions, with the base prompt + this seller's block |
+| VANI speaks | `bulbul:v3` text-to-speech, at this seller's pace |
+
+**Language handling:**
+- Like the agent platform's per-turn language identification, every seller turn is classified as English or Hindi/Hinglish, and that turn's reply is steered to the same language.
+- If an English reply still contains Hindi, it is rewritten once.
+- Outcome tags (`do_not_call`) are recorded, never spoken.
+
+**Speed:** median reply about 0.4 s.
+
+```bash
+export SARVAM_API_KEY=sk_...
+.venv/bin/python -m src.vani_engine <GLID> --at 2026-09-18T19:38 --company "Made-up Name"            # type as the seller
+.venv/bin/python -m src.vani_engine <GLID> --at 2026-09-18T19:38 --company "Made-up Name" --script   # 11 test lines
+```
 
 ## Test the VANI agent on Sarvam with any GLID (no hosting)
 

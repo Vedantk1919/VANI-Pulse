@@ -12,7 +12,7 @@ Direct links (`?p=<page>&s=<demo seller>`) jump straight to a page with a seller
 | 2:40–3:10 | same | **Before vs after** tab | "The current system redialled within minutes; our plan waits for the 8 PM slot." |
 | 3:10–3:50 | same | **Prompt & memory** tab | Show seller.md → "VANI already knows 3 enquiries came in, 1 unread". Use **Write back** "Call Later at 17:00" and show the plan jumping to 16:55. |
 | 3:50–4:10 | sidebar → sellers 5 and 9 | – | Executive spoke today → skip today. Already 3 dials today → tomorrow. (One sentence each.) |
-| 4:10–5:30 | **4 · Talk to VANI** → seller 1 | **▶ Start conversation**, then the quick buttons | Click "memory / hook" → real-number opening. "busy → best times" → VANI offers *this seller's* best windows. "'nahi' guard" → the call continues. "irritated" → apologises once. |
+| 4:10–5:30 | **4 · Talk to VANI** → seller 1 | **▶ Start conversation** (the greeting plays), then **speak into the 🎙 box** or use the quick buttons | Say "haan ji boliye" → real-number opening. "abhi busy hoon" → VANI offers *this seller's* best windows. Say "yeah tell me" → VANI switches to English (and back to Hindi when you do). "char se paanch baje" → read back as a range. Point at "detected: English/Hindi" under each turn. |
 | 5:30–6:30 | **5 · Results & validation** | tabs | Backtest: −17.5% dials, calls per meeting 16.9 → 13.75, +6.6% at equal dials. "Is it real?" chart and the off-policy +17.9% (CI 3.4–35.9). 15-minute verdict tab: short redials lose in every segment. |
 | 6:30–7:00 | back to **Overview** | – | Limits: estimates come from old-schedule data, so next is a 5% A/B test. Thank you. |
 

@@ -1,5 +1,7 @@
 # Connecting VANI to the Sarvam platform (from zero)
 
+> **If you only have an `sk_` API key** (as at the hackathon): the dashboard's **Talk to VANI** page works with just that key. It uses Sarvam's speech-to-text, LLM and text-to-speech APIs directly (`src/vani_engine.py`). Set `export SARVAM_API_KEY=sk_...` and start the dashboard. Path B below (the conversation SDK) needs an agents-platform key and returns 401 "Invalid API key format" with `sk_` keys.
+
 There are two paths. Do **Path A first**: it needs nothing but the Sarvam website and gives you a working agent for the demo and the submission's "Agent ID / live link". **Path B** then connects that agent to our dashboard, so any GLID can be tested from the Talk to VANI page.
 
 The files you paste are generated in `outputs/sarvam_test/` (run `./run_all.sh` or `python -m src.sarvam_live <GLID>` to refresh them):

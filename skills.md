@@ -61,7 +61,14 @@
     - Do-not-call stays a hard stop.
     - The "midday dip" turned out to be mostly a retry-mix effect: no dip on first calls.
 
-12. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
+12. **Sarvam integration under a constraint.** We connected Claude Code to Sarvam's MCP server and configured the agents from the editor:
+    - language identification "always" with Hindi + English (the default "once" locked the language, so "yeah tell me" got Hindi)
+    - an English-authored flow and a female bilingual voice
+    - text-chat tests through the connector, then committed versions
+
+    The only API key available was an `sk_` developer key, which the agents runtime rejects ("Invalid API key format"). So the dashboard runs VANI on Sarvam's developer APIs instead: Saaras STT → Sarvam LLM (`sarvam-105b-conversations`) with the same prompt → Bulbul TTS. It detects the language on every turn ourselves and rewrites any English reply that slips into Hindi. Median reply is about 0.4 s, and all 11 test behaviours pass.
+
+13. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
 
 ## Limits and next steps
 
