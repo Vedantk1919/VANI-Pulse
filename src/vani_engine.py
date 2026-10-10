@@ -29,11 +29,8 @@ STT_URL = "https://api.sarvam.ai/speech-to-text"
 LLM_MODEL = os.environ.get("SARVAM_LLM_MODEL", "sarvam-105b-conversations")
 STT_MODEL = os.environ.get("SARVAM_STT_MODEL", "saaras:v4")
 
-HINGLISH = set("""hai hain hoon hun ho tha thi the nahi nahin nai kya kyun kaun kab kahan kaise kal aaj abhi baad baje
-bajke theek thik haan han ji aap aapka aapke main mein mujhe mera meri hum humko ka ki ke ko se par bhi toh to bolo
-boliye bataiye batao karo kariye kijiye karun chala chal raha rahi rahe gaadi dukaan samjha samajh matlab baar wala
-wali chahiye zaroorat interest pareshan maaf shukriya dhanyavaad accha acha thoda zyada sirf bas ek do teen char
-paanch chhe saat aath sham shaam subah dopahar raat""".split())
+HINGLISH = set("""hai hain hoon hun ho tha thi nahi nahin nai kya kyun kaun kab kahan kaise kal aaj abhi baad baje bajke theek thik haan han ji aap aapka aapke mein mujhe mera meri hum humko ka ki ke ko se bhi toh bolo boliye bataiye batao karo kariye kijiye karun chala chal raha rahi rahe gaadi dukaan samjha samajh matlab baar wala wali chahiye zaroorat interest pareshan maaf shukriya dhanyavaad accha acha thoda zyada sirf bas ek teen char paanch chhe saat aath sham shaam subah dopahar raat""".split())
+# left out on purpose: words that are also English ("to", "do", "the", "main", "par")
 
 
 def _key():
@@ -56,6 +53,11 @@ def detect_language(text, stt_language=None):
     if not words:
         return None
     return "Hindi" if sum(w in HINGLISH for w in words) >= max(1, len(words) // 4) else "English"
+
+
+CLOSING_RE = re.compile(r"(?:aur\s+)?kya\s+main\s+aapki\s+(?:kisi\s+)?aur\s+(?:kisi\s+)?cheez\s+mein\s+madad\s+kar\s+"
+                        r"sakti\s+hoon\s*\??|is\s+there\s+anything\s+else\s+i\s+can\s+help\s+you\s+with\s*\??", re.I)
+READBACK_RE = re.compile(r"(theek|thik|sahi)\s+hai\s*\?|\b(correct|right|okay|ok)\s*\?|\bconfirm\b.*\?", re.I)
 
 
 def _hindi_words(text):
@@ -85,6 +87,7 @@ class VaniConversation:
         self.latency = []
         self.tags = set()
         self.rewrites = 0
+        self.closing_asked = False
 
     def send(self, text, stt_language=None):
         """Seller says `text`; returns VANI's reply (and records both)."""
@@ -100,7 +103,7 @@ class VaniConversation:
         k = _key()
         t0 = time.time()
         reply = self._complete(body, k)
-        if lang == "English" and _hindi_words(reply) >= 3:
+        if lang == "English" and _hindi_words(reply) >= 2:
             # the model copied a Hinglish example line: ask once for a clean English rewrite
             fix = {**body, "messages": body["messages"] + [
                 {"role": "assistant", "content": reply},
@@ -108,6 +111,7 @@ class VaniConversation:
                                               "at most 2 short sentences. Output only the rewritten reply."}]}
             reply = self._complete(fix, k)
             self.rewrites += 1
+        reply = self._closing_once(reply)
         tags = re.findall(r"`?\b(do_not_call|callback|meeting_fixed)\b`?", reply)
         if tags:                                         # outcome tags are recorded, never spoken
             self.tags.update(tags)
@@ -115,6 +119,19 @@ class VaniConversation:
         self.latency.append(time.time() - t0)
         self._history += [{"role": "user", "content": text}, {"role": "assistant", "content": reply}]
         self.messages.append(("VANI", reply, lang))
+        return reply
+
+    def _closing_once(self, reply):
+        """The 'anything else?' question is asked exactly once, and only after the outcome is settled:
+        dropped from a reply that is still waiting for a yes on a read-back time, and from any repeat."""
+        m = CLOSING_RE.search(reply)
+        if not m:
+            return reply
+        rest = (reply[:m.start()] + reply[m.end():]).strip()
+        awaiting_yes = bool(READBACK_RE.search(rest))
+        if self.closing_asked or awaiting_yes:
+            return re.sub(r"\s{2,}", " ", rest).strip() or reply
+        self.closing_asked = True
         return reply
 
     @staticmethod
