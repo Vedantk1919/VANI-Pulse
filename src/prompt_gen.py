@@ -165,6 +165,25 @@ def prior_outcome_opening(last_disp, attempt_no, hist, now):
     return "First contact: confirm the company, introduce yourself in one line, then the opening hook."
 
 
+def bucket_hook(bucket, cat, city, english=False):
+    """Opening hook matched to the lead trigger (redis_bucket), in Hinglish or English."""
+    if bucket in ("PIM", "PAM", "PANF"):
+        return (("I can see you were exploring IndiaMART's paid services. Our sales executive would like a short "
+                 "15-20 minute meeting with you about it.") if english else
+                ("Main dekh rahi hoon ki aap IndiaMART ki paid services explore kar rahe the. Isi baare mein hamare "
+                 "sales executive aapke saath 15-20 minute ki chhoti si meeting karna chahte hain."), EVIDENCE["hook_paid"])
+    if bucket in ("PUA", "PUT"):
+        return ((f"You were looking at buyleads on IndiaMART - new buyers are coming in for {cat} in {city}. Our sales "
+                 f"executive can show you how to convert them in a 15-20 minute meeting.") if english else
+                (f"Aap IndiaMART par buyleads dekh rahe the - {cat} ke liye {city} mein naye buyers aa rahe hain. "
+                 f"Hamare sales executive aapko inhe convert karne ka tareeka 15-20 minute mein samjha denge."), EVIDENCE["hook_buylead"])
+    return ((f"More than {{enquiry_count}} buyer enquiries have come in for {cat} in {city}. Our sales executive "
+             f"would like a 15-20 minute meeting to walk you through them.") if english else
+            (f"{city} mein {cat} ki category mein {{enquiry_count}} se zyada buyer enquiry aayi hain. "
+             f"Isliye hamare sales executive aapse 15-20 minute ki meeting karna chahenge."),
+            EVIDENCE["hook_enquiry"] + ". Always speak the real number, never 'kuch zyada'.")
+
+
 def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now, last_disp=None):
     """Rules -> opening hook, tone, pace, language, handling. Each item carries its reason."""
     d = {}
@@ -177,32 +196,12 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     short_calls = pd.notna(persona.get("avg_answered_call_sec")) and persona["avg_answered_call_sec"] < 20
     frustrated = bool(persona.get("showed_frustration") == 1) or dials_24h >= 2 or attempt_no >= 3
 
-    # 1. Opening hook - matched to the lead trigger (English for sellers who start in English)
+    # 1. Opening hook - matched to the lead trigger, ready in both languages
     english = profile["seller_state"] in SOUTH
-    if english and bucket in ("PIM", "PAM", "PANF"):
-        hook = ("I can see you were exploring IndiaMART's paid services. Our sales executive would like a short "
-                "15-20 minute meeting with you about it.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_paid"])
-    elif english and bucket in ("PUA", "PUT"):
-        hook = (f"You were looking at buyleads on IndiaMART - new buyers are coming in for {cat} in {city}. Our sales "
-                f"executive can show you how to convert them in a 15-20 minute meeting.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_buylead"])
-    elif english:
-        hook = (f"More than {{enquiry_count}} buyer enquiries have come in for {cat} in {city}. Our sales executive "
-                f"would like a 15-20 minute meeting to walk you through them.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_enquiry"] + ". Always speak the real number.")
-    elif bucket in ("PIM", "PAM", "PANF"):
-        hook = (f"Main dekh rahi hoon ki aap IndiaMART ki paid services explore kar rahe the. Isi baare mein hamare "
-                f"sales executive aapke saath 15-20 minute ki chhoti si meeting karna chahte hain.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_paid"])
-    elif bucket in ("PUA", "PUT"):
-        hook = (f"Aap IndiaMART par buyleads dekh rahe the - {cat} ke liye {city} mein naye buyers aa rahe hain. "
-                f"Hamare sales executive aapko inhe convert karne ka tareeka 15-20 minute mein samjha denge.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_buylead"])
-    else:
-        hook = (f"{city} mein {cat} ki category mein {{enquiry_count}} se zyada buyer enquiry aayi hain. "
-                f"Isliye hamare sales executive aapse 15-20 minute ki meeting karna chahenge.")
-        d["opening_hook"] = (hook, EVIDENCE["hook_enquiry"] + ". Always speak the real number, never 'kuch zyada'.")
+    hook_hi, ev = bucket_hook(bucket, cat, city, english=False)
+    hook_en, _ = bucket_hook(bucket, cat, city, english=True)
+    d["opening_hook"] = (hook_en if english else hook_hi, ev)
+    d["opening_hook_alt"] = (hook_hi if english else hook_en, "Same hook in the other language, for a mid-call switch.")
 
     # 2. Tone / formality
     if big:
@@ -280,10 +279,12 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
 
 def add_global_context(design, f):
     """Use seller.md facts (Problem 2): real-number opening, what VANI already knows, no re-asking."""
-    hook = sm.personal_hook(f, english=design["language"][0].startswith("Start in simple English"))
+    english = design["language"][0].startswith("Start in simple English")
+    hook, hook_other = sm.personal_hook(f, english=english), sm.personal_hook(f, english=not english)
     if hook:
         design["opening_hook"] = (hook, "Real numbers from this seller's last 30 days (seller.md). "
                                   + EVIDENCE["hook_enquiry"])
+        design["opening_hook_alt"] = (hook_other, "Same hook in the other language, for a mid-call switch.")
     known = list(f["open_threads"])
     if f["enquiries_30d"]:
         known.append(f"{f['enquiries_30d']} enquiries in 30 days: {f['enquiry_products_30d']}; buyers from {f['enquiry_cities_30d']}.")
@@ -303,8 +304,15 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         f"## Seller-specific instructions (GLID {glid})",
         f"- Seller: {persona.get('top_category_1', 'NA')} | {profile['nature_of_business']} | "
         f"{profile['business_type']} | {persona.get('annual_turnover', 'NA')} | {persona.get('seller_city', '')}, {profile['seller_state']}",
+        "- LANGUAGE RULE (highest priority, check every seller turn): reply in the language of the seller's LAST "
+        "turn. If it is mostly English words - even short ones like 'yeah', 'yes', 'tell me', 'okay', 'what', "
+        "'go ahead', and even if they appear in Devanagari script (ये, टेल मी, ओके) - switch to English at once "
+        "and stay in English. Use the English opening below; never read the Hinglish line to an English speaker.",
         f"- How to open this call: {design['prior_outcome'][0]}",
-        f"- Opening (after confirming the company name): \"{design['opening_hook'][0]}\"",
+        f"- Opening, {'English' if design['language'][0].startswith('Start in simple English') else 'Hinglish'} "
+        f"(after confirming the company name): \"{design['opening_hook'][0]}\"",
+        f"- Opening, {'Hinglish' if design['language'][0].startswith('Start in simple English') else 'English'} "
+        f"(use if the seller speaks it): \"{design['opening_hook_alt'][0]}\"",
         f"- Tone: {design['tone'][0]}",
         f"- Pace: {design['pace'][0]}",
         f"- Language: {design['language'][0]}",
