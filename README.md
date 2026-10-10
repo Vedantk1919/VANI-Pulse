@@ -225,7 +225,7 @@ The pages follow the demo story:
 4. **Talk to VANI:** a live Sarvam chat seeded with the selected seller's prompt, one-click test lines with the behaviour to expect, a transcript download, and "Speak opening" (Bulbul TTS).
 5. **Results & validation:** backtest, 15-minute verdict, model comparison and checks, Global Context tests.
 
-**🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=3&s=1` opens page 3 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script.
+**🎬 Recording mode** (sidebar) hides company, product and buyer-city names and GLIDs on screen. Direct links: `?p=3&s=1` opens page 3 with demo seller 1. See **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** for a minute-by-minute video script and **[SARVAM_SETUP.md](SARVAM_SETUP.md)** to connect the agent on Sarvam.
 
 ## Test the VANI agent on Sarvam with any GLID (no hosting)
 
