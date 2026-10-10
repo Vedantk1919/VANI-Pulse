@@ -243,7 +243,8 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     # 6. Busy handling - ties the timing model into the conversation
     alt_txt = " ya ".join(pick_alternatives(windows, now)) or "aaj shaam 6 baje"
     d["busy_handling"] = (f"If the seller is busy/driving: stop the pitch at once and offer two concrete times from the "
-                          f"call plan: 'Koi baat nahi - kya main {alt_txt} call karun?'. Save the time as callback.",
+                          f"call plan: 'Koi baat nahi - kya main {alt_txt} call karun?'. When the seller picks or gives a time, read it back "
+                          f"with the day (a range as a range) and confirm it before ending the call.",
                           EVIDENCE["busy"] + ". The offered times are this seller's best predicted windows.")
     d["price_question"] = ("If the seller asks price: give the one-line answer you have, then 'baaki detail executive "
                            "meeting mein samjha denge - kal kis time 15 minute milenge?'", EVIDENCE["price"])
@@ -260,7 +261,7 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
         "  * RUSHED ('jaldi bolo', 'time nahi hai', 'haan haan', answers before you finish): skip the explanation, "
         "ask for the time straight away: 'Bas ek sawaal - kal kis time 15 minute milenge?'\n"
         + ("  * SWITCHES TO HINDI: continue in simple Hindi/Hinglish.\n" if english_first else
-           "  * SWITCHES TO ENGLISH: continue in English for the rest of the call.\n")
+           "  * SWITCHES LANGUAGE: follow the seller - English when they speak English, Hinglish when they speak Hindi again.\n")
         + "  * CONFUSED ('kya?', 'samjha nahi', 'matlab?', repeats your words): slow down, repeat the point in simpler "
         "words in one short sentence, no jargon ('ek executive aapke paas aakar 15 minute mein samjhayega').\n"
         "  Switch once per signal; do not go back to the long pitch after a switch.",
@@ -307,7 +308,8 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         "- LANGUAGE RULE (highest priority, check every seller turn): reply in the language of the seller's LAST "
         "turn. If it is mostly English words - even short ones like 'yeah', 'yes', 'tell me', 'okay', 'what', "
         "'go ahead', and even if they appear in Devanagari script (ये, टेल मी, ओके) - switch to English at once "
-        "and stay in English. Use the English opening below; never read the Hinglish line to an English speaker.",
+        "and use the English opening below; never read the Hinglish line to an English speaker. When the seller's last "
+        "turn is mostly Hindi or Hinglish, reply in Hinglish again.",
         f"- How to open this call: {design['prior_outcome'][0]}",
         f"- Opening, {'English' if design['language'][0].startswith('Start in simple English') else 'Hinglish'} "
         f"(after confirming the company name): \"{design['opening_hook'][0]}\"",

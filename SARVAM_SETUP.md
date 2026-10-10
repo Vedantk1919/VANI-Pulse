@@ -142,12 +142,22 @@ VANI's first real reply should mention **this seller's** details (3 enquiries, 1
 
 ---
 
+## What we learned setting up the agents (October 10)
+
+- **Language switching is a setting, not a prompt instruction.** Set **Supported languages = Hindi + English only** and language identification mode **"always"**. The default mode ("once") detects the caller's language one time and then locks it, which is why "yeah tell me" kept getting Hindi.
+- **Write the greeting in English** ("Hello! Am I speaking with …?"). Sarvam generates the Hindi version itself, and the agent still opens in Hindi when Hindi is the starting language.
+- **Don't quote fixed Hinglish lines as the steps of the flow** (e.g. the meeting question). The agent repeats them word for word even in an English conversation. Describe the step in English and give the hook in both languages (the generator now does this).
+- **Always read a chosen time back and wait for a yes** before closing. Without this rule the agent ended the call after "kal char se paanch baje".
+- **Voice:** a female voice listed for both English and Hindi (we use "Ishita – Hinglish Support Agent").
+- **API key for the conversation SDK** comes from the agents platform: **indus.sarvam.ai → Settings → API Key**. The developer key from dashboard.sarvam.ai works for text-to-speech but returns **401** for agent sessions.
+- **Connecting Claude Code to Sarvam (optional):** `claude mcp add --transport http sarvam-voice-agents https://mcp.sarvam.ai/voice-agents`, then `/mcp` → Authenticate. With that, agents can be created, edited, tested by chat and committed from the editor.
+
 ## Troubleshooting
 
 | Symptom | Likely cause and fix |
 |---|---|
 | "Set SARVAM_ORG_ID, …" message | The variables weren't exported in the terminal that started the script or dashboard. Export them, then restart |
-| 401 / 403 error | Wrong or expired API key, or the key belongs to a different organisation than the agent |
+| 401 / 403 error | The key isn't an agents-platform key: create one at indus.sarvam.ai → Settings → API Key (a dashboard.sarvam.ai developer key gives 401 for agent sessions) |
 | Agent not found / 404 | Wrong `SARVAM_APP_ID`, or no committed version yet (step B2.6) |
 | VANI ignores the seller details | `@seller_block` was pasted as plain text instead of a variable chip (B2.2), or the variable name doesn't match exactly (`seller_block`, `company_name`) |
 | Long prompt rejected or cut | The seller block is 2,000–4,000 characters. Ask the Sarvam team about variable size limits, or fall back to Path A (full prompt per seller) |
