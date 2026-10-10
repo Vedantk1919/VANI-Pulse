@@ -7,6 +7,7 @@ For one seller GLID this produces:
 
 Run:  python -m src.prompt_gen <glid> [<glid> ...]      (writes outputs/plans/<glid>.md/.json)
 """
+import re
 import json
 import sys
 from datetime import datetime
@@ -145,6 +146,19 @@ def pick_alternatives(windows, now, n=2):
         if len(out) == n:
             break
     return [hinglish_time(t, now) for t in out]
+
+
+def opening_lead(how_to_open):
+    """{english?: sentence} put in front of the quoted opening lines, so the model says the callback / dropped-call
+    reference instead of a generic introduction (it tends to read the quoted line as written)."""
+    m = re.match(r"Callback: .*?'Aapne( [0-9:]+ [AP]M)? call karne ko kaha tha", how_to_open)
+    if m:
+        t = (m.group(1) or "").strip()
+        return {False: f"Aapne {t + ' ' if t else ''}call karne ko kaha tha, isliye call kiya. ",
+                True: f"You asked me to call {'at ' + t if t else 'back'}, so I am calling you now. "}
+    if how_to_open.startswith("Re-contact after a talk"):
+        return {False: "Pichhli baar baat poori nahi ho payi thi. ", True: "Our last call got cut off. "}
+    return {False: "", True: ""}
 
 
 def prior_outcome_opening(last_disp, attempt_no, hist, now):
@@ -302,6 +316,8 @@ def add_global_context(design, f):
 
 
 def build_prompt(glid, design, plan, windows, profile, persona):
+    english = design["language"][0].startswith("Start in simple English")
+    lead = opening_lead(design["prior_outcome"][0])
     lines = [
         f"## Seller-specific instructions (GLID {glid})",
         f"- Seller: {persona.get('top_category_1', 'NA')} | {profile['nature_of_business']} | "
@@ -312,10 +328,10 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         "and use the English opening below; never read the Hinglish line to an English speaker. When the seller's last "
         "turn is mostly Hindi or Hinglish, reply in Hinglish again.",
         f"- How to open this call: {design['prior_outcome'][0]}",
-        f"- Opening, {'English' if design['language'][0].startswith('Start in simple English') else 'Hinglish'} "
-        f"(after confirming the company name): \"{design['opening_hook'][0]}\"",
-        f"- Opening, {'Hinglish' if design['language'][0].startswith('Start in simple English') else 'English'} "
-        f"(use if the seller speaks it): \"{design['opening_hook_alt'][0]}\"",
+        f"- Opening, {'English' if english else 'Hinglish'} "
+        f"(after confirming the company name): \"{lead[english]}{design['opening_hook'][0]}\"",
+        f"- Opening, {'Hinglish' if english else 'English'} "
+        f"(use if the seller speaks it): \"{lead[not english]}{design['opening_hook_alt'][0]}\"",
         f"- Tone: {design['tone'][0]}",
         f"- Pace: {design['pace'][0]}",
         f"- Language: {design['language'][0]}",

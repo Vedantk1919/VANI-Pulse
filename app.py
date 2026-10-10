@@ -839,7 +839,7 @@ def page_live():
         when = c2.radio("Plan as of", ["Now (live clock)", "A past moment"], horizontal=True)
         d_, t_ = c3.columns(2)
         dd = d_.date_input("Date", value=datetime(2026, 9, 18).date())
-        tt = t_.time_input("Time", value=time(19, 38))
+        tt = t_.time_input("Time", value=time(19, 38), step=60)
         comp = st.text_input("Company name VANI uses (blank = from seller data, else 'aapki company')", value="")
         go = st.form_submit_button("⚡ Generate everything now", type="primary")
     if go:
