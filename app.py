@@ -33,6 +33,7 @@ def load_json(name):
 @st.cache_resource
 def warm():
     pg._attempts_by_seller(); pg._persona(); pg._model(); sm._timeline(); sm._profile(); sm._vani_dials()
+    ds._persona_counts()
     return True
 
 
@@ -62,8 +63,14 @@ if choice == "Custom GLID…":
 else:
     sel = ds.DEMO[labels.index(choice)]
     glid, at, scenario = sel["glid"], datetime.fromisoformat(sel["at"]), sel
-    st.sidebar.caption(f"As of {at:%a %d %b %Y %H:%M}")
+    st.sidebar.caption((f"GLID {glid} · " if not st.session_state.get("mask") else "") + f"as of {at:%a %d %b %Y %H:%M}")
     st.sidebar.caption(sel["show"])
+
+
+def source(*keys, extra=None):
+    """'📁 Source' line naming the dataset file(s) or our computed output behind a number or chart."""
+    parts = [ds.SOURCES[k][0] for k in keys] + ([extra] if extra else [])
+    st.caption("📁 Source: " + " · ".join(parts))
 
 
 def kpi_row(items, widths=None):
@@ -91,6 +98,7 @@ def page_overview():
                  ("Off-policy check", f"+{brief['off_policy_ips']['lift_pct']}%" if brief else "-",
                   f"95% CI {brief['off_policy_ips']['lift_ci95_pct'][0]} to {brief['off_policy_ips']['lift_ci95_pct'][1]}" if brief else ""),
                  ("15-minute rule", "CHANGE", "short redials lose in every segment")])
+        source("backtest", "brief", extra="held-out September 2026 dials from Call Attempts Apr-Sep 2026.csv")
     st.divider()
     c1, c2 = st.columns([1.1, 1])
     with c1:
@@ -100,6 +108,7 @@ def page_overview():
 - It takes **~17 dials to fix one meeting**, and repeated calls irritate sellers
   (*"baar baar call mat kijiye"*).
 - Optimising pickups alone doesn't produce meetings. **The goal is meetings fixed.**""")
+        source("analysis", extra="Call Attempts Apr-Sep 2026.csv · ps07_call_turns.csv (frustration quotes)")
         st.subheader("What we built")
         st.markdown("""
 1. **Timing model** – an ensemble (LightGBM + XGBoost + CatBoost) predicts P(answer) and **P(meeting)** for every seller × hour slot.
@@ -141,30 +150,41 @@ def page_analysis():
     kpi_row([("Dials (Apr–Sep 2026)", f"{t['dials']:,}", None), ("Sellers", f"{t['sellers']:,}", None),
              ("Meetings fixed", f"{t['meetings']:,}", None), ("Answer rate", f"{t['answer_rate']:.1%}", None),
              ("Dials per meeting", f"{t['dials_per_meeting']}", None)])
+    source("attempts", "sellers")
     st.divider()
     c1, c2 = st.columns(2)
     h = pd.DataFrame(ana["hour_first_attempt"]).assign(hour=lambda d: d.hour.astype(int).map(lambda x: f"{x}:00"))
     c1.altair_chart(bar(h, "hour", "meeting_rate", "1 · First calls: meeting rate by hour",
                         highlight=lambda r: r.hour in ("18:00", "19:00", "20:00"), sort=None), width="stretch")
     c1.caption("Evening (6–9 PM) converts best; 9 AM, mostly overnight backlog, is worst.")
+    with c1:
+        source("attempts", extra="first attempts only")
     att = pd.DataFrame(ana["by_attempt"]).assign(attempt=lambda d: d.call_attempt_count.map(lambda x: "8+" if x >= 8 else str(x)))
     c2.altair_chart(bar(att, "attempt", "share_of_all_meetings", "2 · Share of all meetings by attempt number",
                         highlight=lambda r: r.attempt == "1"), width="stretch")
     c2.caption("68% of meetings come on the first call; attempts 6+ add almost nothing.")
+    with c2:
+        source("attempts")
     c3, c4 = st.columns(2)
     g = pd.DataFrame(ana["retry_gap"])
     c3.altair_chart(bar(g, "gap", "meeting_rate", "3 · Retry after no-answer: meeting rate by gap", fmt=".1%",
                         highlight=lambda r: r.gap in ("1-2h", "4-8h"), sort=list(g.gap)), width="stretch")
     c3.caption("Under 30 min is worst; 1–2 h and 4–8 h on the same day are best; the next day is about half.")
+    with c3:
+        source("attempts", extra="retries after a Not Answered")
     f = pd.DataFrame(ana["frustration_by_dials_24h"]).assign(dials=lambda d: d.dials_24h.map(lambda x: "5+" if x >= 5 else str(int(x))))
     c4.altair_chart(bar(f, "dials", "frustration_rate", "4 · Seller frustration vs dials in the previous 24 h", fmt=".1%",
                         color=RED), width="stretch")
     c4.caption("Frustration phrases ('baar baar call', 'kitni baar') triple as dials pile up.")
+    with c4:
+        source("turns", "attempts")
     c5, c6 = st.columns(2)
     s = pd.DataFrame(ana["speed_to_lead"])
     c5.altair_chart(bar(s, "delay", "meeting_rate", "5 · Speed to lead: first-call meeting rate by delay", fmt=".1%",
                         highlight=lambda r: r.delay == "<30s", sort=list(s.delay)), width="stretch")
     c5.caption("Calling within 30 seconds of the trigger converts best.")
+    with c5:
+        source("attempts", extra="lead_sent_time vs call_start_time, first attempts from 10 AM")
     if rep and "tiers" in rep:
         tr = pd.DataFrame(rep["tiers"]).melt("tier", ["share_dials", "share_meetings"], var_name="what", value_name="share")
         c6.altair_chart(alt.Chart(tr).mark_bar().encode(
@@ -173,6 +193,8 @@ def page_analysis():
             tooltip=["tier", "what", alt.Tooltip("share:Q", format=".1%")]).properties(title="6 · Lead tiers (Sept): share of dials vs meetings", height=230),
             width="stretch")
         c6.caption("Tier D uses 47% of dials for 15% of meetings: that's where the stop rule saves dials.")
+        with c6:
+            source("backtest", "model")
     st.divider()
     st.subheader("Conversation findings (12.8k transcripts)")
     st.markdown("""
@@ -184,6 +206,7 @@ def page_analysis():
 | Seller asks the price | buying signal: 37% vs 22% |
 | "nahi" alone | **not a refusal** (in 54% of calls that fixed a meeting); real negatives: "interest nahi" 0.31×, "call mat karo" 0.37× |
 """)
+    source("turns", "bot_calls", extra="hook types matched to lead type (redis_bucket) from Call Attempts")
 
 
 # ------------------------------------------------------------------ 3. demo sellers
@@ -193,6 +216,7 @@ def page_demo():
     with st.expander("All demo sellers (each shows a different part of the system)", expanded=scenario is None):
         tbl = ds.demo_table()
         st.dataframe(tbl.drop(columns="GLID") if st.session_state.get("mask") else tbl, width="stretch", hide_index=True)
+        source("attempts", extra="each seller is real; the 'as of' moment is a real point in their call history")
     if not glid:
         st.info("Pick a demo seller in the sidebar, or enter a custom GLID.")
         return
@@ -212,8 +236,13 @@ def page_demo():
              ("P(meeting)", f"{w['p_meeting']:.1%}" if w["p_meeting"] is not None else "—", None),
              ("Lead tier", out.get("tier") or "—", None)], widths=[1, 2, 1, 1, 1])
     st.info(f"**Why:** {w['reason']}")
+    source("model", "attempts", extra="guardrails and gap curve from src/policy.py")
 
-    t1, t2, t3, t4 = st.tabs(["History", "Plan & windows", "Before vs after", "Prompt & memory"])
+    t0_, t1, t2, t3, t4 = st.tabs(["Data sources", "History", "Plan & windows", "Before vs after", "Prompt & memory"])
+    with t0_:
+        st.markdown(mask(f"**GLID {glid}**") + " - every source file that holds data for this seller, and what it is used for:")
+        st.dataframe(ds.source_inventory(glid, at), width="stretch", hide_index=True)
+        st.caption("Counts for dated sources are shown up to the demo moment where possible; nothing after it is used for the plan.")
     with t1:
         h = ds.history(glid, at)
         prof = out["jinja_vars"]
@@ -221,10 +250,12 @@ def page_demo():
         with c1:
             p = pg.seller_context(glid, at)[1]
             st.markdown("**Profile**")
+            source("sellers")
             st.markdown(f"- {p.get('seller_state')} · {p.get('business_type')}\n- {p.get('nature_of_business')}\n"
                         f"- {p.get('top_category_group')}\n- GST since {int(p['gst_registration_year']) if pd.notna(p.get('gst_registration_year')) else '—'}")
             before = h[h.period == "before"] if len(h) else h
             st.markdown("**Call history before this moment**")
+            source("attempts")
             if len(before):
                 st.markdown(f"- {len(before)} dials · picked up {(before.disposition_label != 'Not Answered').mean():.0%}\n"
                             f"- meetings fixed: {(before.disposition_label == 'Meeting Fixed').sum()}\n"
@@ -245,6 +276,7 @@ def page_demo():
                 rule = alt.Chart(pd.DataFrame({"t": [at]})).mark_rule(color=AMBER, strokeDash=[4, 3], size=2).encode(x="t:T")
                 st.altair_chart((ch + rule).properties(height=260, title="Every VANI dial (● before, ▲ after the demo moment)"),
                                 width="stretch")
+                source("attempts")
             ev = ds.channel_events(glid, at)
             if len(ev):
                 ev = ev[ev.ts > pd.Timestamp(at) - pd.Timedelta(days=90)]
@@ -258,11 +290,13 @@ def page_demo():
                     y=alt.Y("events:Q", title="events / week"),
                     color=alt.Color("channel:N", legend=alt.Legend(orient="bottom", title=None))
                 ).properties(height=240, title="Activity on other channels (last 90 days, Global Context)"), width="stretch")
+                source("gc", extra="gc_enquiries_received, gc_buyer_calls_received, gc_whatsapp_*, gc_buyleads_bought, gc_executive_calls")
         if len(h):
             st.dataframe(h.assign(call_start_time=h.call_start_time.dt.strftime("%a %d %b %H:%M")).rename(columns={
                 "call_start_time": "When", "call_attempt_count": "Attempt", "disposition_label": "Outcome",
                 "lead_call_duration": "Talk (s)", "hour": "Hour", "redis_bucket": "Lead type", "period": "Before / after"}),
                 width="stretch", hide_index=True, height=220)
+            source("attempts")
     with t2:
         if not plan.ranked.empty:
             r = plan.ranked.copy()
@@ -275,6 +309,7 @@ def page_demo():
                                 legend=alt.Legend(orient="top", title=None)),
                 tooltip=["slot_label", alt.Tooltip("p_meeting:Q", format=".2%"), alt.Tooltip("p_answer:Q", format=".0%"),
                          alt.Tooltip("gap_factor:Q", format=".2f"), "blocked_reason"]).properties(height=250), width="stretch")
+            source("model", extra="gap curve learned on Apr-Aug retries (models/gap_curve.json); guardrails in src/policy.py")
         from src import windows as win
         c1, c2 = st.columns([1, 1.3])
         wk, meta = win.weekly_windows(int(glid), at)
@@ -283,6 +318,7 @@ def page_demo():
                                p_answer=lambda d: d.p_answer.map("{:.0%}".format)), width="stretch", hide_index=True)
         c2.markdown("**Retry ladder if calls keep going unanswered**")
         c2.dataframe(pd.DataFrame(win.retry_ladder(int(glid), at)), width="stretch", hide_index=True)
+        source("model", "attempts", extra="src/windows.py")
     with t3:
         actual, ours = ds.before_after(glid, at)
         c1, c2 = st.columns(2)
@@ -292,11 +328,13 @@ def page_demo():
                 st.dataframe(pd.DataFrame(actual), width="stretch", hide_index=True)
             else:
                 st.caption("No further dials in the data.")
+            source("attempts", extra="the dials that actually followed this moment")
         with c2:
             st.markdown("#### Our plan at the same moment")
             st.markdown(f"**{ours['action'].upper()}** {ours['when'] or ''}  \n{ours['reason']}")
             if ours["p_meeting"] is not None:
                 st.markdown(f"P(answer) **{ours['p_answer']:.0%}** · P(meeting) **{ours['p_meeting']:.1%}** · tier **{ours['tier']}**")
+            source("model", extra="history up to this moment only")
         st.caption("Single cases illustrate the logic; the measured effect over all of September is on the Results page.")
     with t4:
         if out.get("seller_md"):
@@ -304,9 +342,11 @@ def page_demo():
             with c1:
                 st.markdown("#### seller.md: what VANI knows before it speaks")
                 st.markdown(mask(out["seller_md"]))
+                source("gc", "attempts")
             with c2:
                 st.markdown("#### VANI prompt block (sent to Sarvam)")
                 st.code(mask(out["vani_prompt_block"]), language="markdown")
+                source("model", "persona", "gc", extra="evidence from ps07_call_turns.csv")
             with st.form("writeback"):
                 st.markdown("**Simulate the end of a call:** VANI writes the result back and the plan updates at once.")
                 a1, a2, a3 = st.columns([1, 1, 2])
@@ -323,6 +363,7 @@ def page_demo():
             st.caption("Outside the 5,000-seller Global Context sample: VANI uses the standard prompt (no seller.md).")
             st.code(mask(out["vani_prompt_block"]), language="markdown")
         st.markdown("#### Why each instruction")
+        source("turns", "persona", "sellers", extra="each 'evidence' line below names the finding it comes from")
         for k, v in out["how"].items():
             st.markdown(f"**{k.replace('_', ' ').capitalize()}** – {mask(v['instruction'])}  \n<span style='color:{GREY}'>evidence: {v['reason']}</span>",
                         unsafe_allow_html=True)
@@ -373,6 +414,7 @@ def page_talk():
                      width="stretch", hide_index=True, height=420,
                      column_config={"you say": st.column_config.TextColumn(width="medium"),
                                     "VANI should": st.column_config.TextColumn(width="medium")})
+        source("turns", extra="expected behaviour comes from the transcript findings (page 2)")
         with st.expander("Prompt block VANI receives"):
             st.code(mask(sess["variables"]["seller_block"]), language="markdown")
     with left:
@@ -415,6 +457,7 @@ def page_talk():
                 st.rerun()
         st.divider()
         st.markdown("**Hear the opening in VANI's voice (Sarvam Bulbul, this seller's pace)**")
+        source("model", "gc", extra="voice: Sarvam text-to-speech, bulbul:v3")
         script = sarvam.opening_script(sess["plan"], company or "aapki company")
         st.write(mask(script))
         if sarvam.available():
@@ -439,6 +482,7 @@ def page_results():
                  ("Calls per meeting", comb["calls_per_meeting"], f"{comb['calls_per_meeting'] - comb['baseline_calls_per_meeting']:.2f}", "inverse"),
                  ("Connect rate", f"{b['default']['connect_rate']:.1%}", f"{100 * (b['default']['connect_rate'] - c0):+.1f} pp", "normal"),
                  ("Meetings at equal dials", f"+{a['lift_equal_dials_pct']}%", "model estimate")])
+        source("backtest", extra="replay of 124,779 September dials from Call Attempts Apr-Sep 2026.csv")
         ev = a["empirical_validation"]
         rows = [dict(r, kind=k) for k in ("first attempt", "retry") for r in ev[k]]
         st.markdown("**Is the time-of-day signal real?** Calls that *happened* in the model's best slots vs its worst (actual September outcomes):")
@@ -449,10 +493,12 @@ def page_results():
         st.caption(f"Best vs worst fifth: first calls +{ev['first attempt Q5_vs_Q1_meeting_lift_pct']}% "
                    f"(95% CI {ev['first attempt Q5_vs_Q1_ci95'][0]} to {ev['first attempt Q5_vs_Q1_ci95'][1]}), retries "
                    f"+{ev['retry Q5_vs_Q1_meeting_lift_pct']}% (CI {ev['retry Q5_vs_Q1_ci95'][0]} to {ev['retry Q5_vs_Q1_ci95'][1]}).")
+        source("backtest", "model")
         if brief:
             ip = brief["off_policy_ips"]
             st.markdown(f"**Off-policy check (inverse-propensity weighting):** moving retries to their best hour → "
                         f"**+{ip['lift_pct']}% meetings** (95% CI {ip['lift_ci95_pct'][0]} to {ip['lift_ci95_pct'][1]}).")
+            source("brief")
         mix = pd.DataFrame({"actual": a["actual_hour_mix"], "recommended": a["recommended_hour_mix"]}).reset_index(names="hour")
         mix["hour"] = mix.hour.astype(int)
         st.altair_chart(alt.Chart(mix.melt("hour", var_name="schedule", value_name="share")).mark_bar().encode(
@@ -460,8 +506,10 @@ def page_results():
             y=alt.Y("share:Q", axis=alt.Axis(format="%"), title="share of dials"),
             color=alt.Color("schedule:N", scale=alt.Scale(range=[GREY, AMBER]), legend=alt.Legend(orient="top", title=None))
         ).properties(height=280, title="Where the dials go: actual vs recommended"), width="stretch")
+        source("backtest")
         with st.expander("Stop-rule trade-off grid (48 settings)"):
             st.dataframe(pd.DataFrame(b["grid"]), width="stretch", hide_index=True)
+            source("backtest")
     with t2:
         st.markdown("## Verdict: **CHANGE**")
         st.markdown("""
@@ -474,9 +522,11 @@ def page_results():
             seg = seg[seg.segment == "business_type"].pivot_table(index="value", columns="gap", values="meeting")
             st.markdown("**Meeting rate after a no-answer, by redial gap and business type**")
             st.dataframe(seg.style.format("{:.1%}"), width="stretch")
+            source("brief", "attempts", "sellers")
         c = rep["rule_15min"]
         st.caption("All retries after a 'Not Answered', by hours since that dial")
         st.dataframe(pd.DataFrame(c["retry_after_not_answered_by_gap_hours"]), width="stretch", hide_index=True)
+        source("backtest", "attempts")
         st.caption("Assumption to confirm with the organisers: the 15-minute redial happens inside one logged attempt "
                    "(dial-to-report times peak at ~7 and ~22 min); logged retries are 45+ min apart.")
     with t3:
@@ -485,18 +535,22 @@ def page_results():
             st.markdown("**Model bake-off** (same features and split; ensemble in production)")
             cols = ["model", "meeting_auc", "meeting_logloss", "answer_auc", "slot_check_retry_Q5_vs_Q1_pct", "train_seconds"]
             st.dataframe(pd.read_csv(cmp_)[cols], width="stretch", hide_index=True)
+            source("model", extra="outputs/model_comparison.csv (src/compare_models.py)")
         if brief:
             st.markdown("**Confidence vs amount of history** (new sellers fall back to segment patterns)")
             st.dataframe(pd.DataFrame(brief["confidence_by_history"]), width="stretch", hide_index=True)
+            source("brief")
         lc = load_json("label_check.json")
         if lc:
             st.markdown(f"**Label check:** {lc['false_meeting_rate']:.1%} of evaluated meetings weren't real, flat by hour; "
                         f"AUC with the corrected label {lc['test_auc_clean_label']} (unchanged), hour ranking correlation "
                         f"{lc['hour_ranking_correlation']}.")
+            source("evaluator", extra="outputs/label_check.json")
         m = mrep["meeting"]
         st.altair_chart(alt.Chart(pd.DataFrame(m["calibration"])).mark_line(point=True, color=NAVY).encode(
             x=alt.X("pred:Q", title="predicted P(meeting)"), y=alt.Y("obs:Q", title="observed")
         ).properties(height=220, width=380, title=f"Calibration on September (AUC {m['test_auc']})"))
+        source("model")
     with t4:
         ge, gv = load_json("gc_eval.json"), load_json("gc_validation.json")
         if ge:
@@ -511,9 +565,13 @@ def page_results():
 - **WhatsApp pushes:** no harm to pickup, so they don't count toward the irritation limit.
 - **Executive spoke today:** too rare to test → cautious "skip today" rule.
 - **Seller's usual activity hour:** no effect, so not used.""")
+            source("gc_eval", "gc", "attempts")
 
 
 {PAGES[0]: page_overview, PAGES[1]: page_analysis, PAGES[2]: page_demo,
  PAGES[3]: page_talk, PAGES[4]: page_results}[page]()
 st.sidebar.divider()
+with st.sidebar.expander("📁 Data sources"):
+    for k, (name, what) in ds.SOURCES.items():
+        st.markdown(f"**{name}**  \n<span style='font-size:0.8em;color:{GREY}'>{what}</span>", unsafe_allow_html=True)
 st.sidebar.caption("All data stays on this machine. Only the seller's prompt block goes to Sarvam during a live chat.")
