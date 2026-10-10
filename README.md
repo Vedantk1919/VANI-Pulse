@@ -52,6 +52,53 @@ Each decision comes with the evidence behind it. The output is a seller-specific
 
 The ensemble is best on every accuracy metric, by a small margin. The three boosted models are statistically tied on slot ranking. Logistic regression is clearly weaker at ranking retry slots.
 
+## Global Context: memory across channels (Problem 2, integrated)
+
+Before each call, VANI loads a short **`seller.md`** for the seller (about 260 tokens). It's built from a single event timeline that combines enquiries, enquiry replies, buyer calls, buyleads, WhatsApp messages and chatbot chats, past VANI calls and executive calls. The data is the Global Context sample: 5,000 sellers, Apr–Oct 2026. Raw message text and phone numbers are never copied; only counts, products, cities, intents and scrubbed call outcomes.
+
+**`seller.md` sections:**
+- **Who:** location, business type, turnover, what they sell and buy.
+- **Open threads:** promised callbacks, meetings already fixed, executive contact, unread enquiries, missed buyer calls.
+- **Business activity:** enquiries, buyer calls, WhatsApp.
+- **Last 3 conversations** on any channel.
+- **Best time to call:** from the timing model.
+- **Signals:** flags such as frustration or do-not-call.
+
+**How the two problems feed each other:**
+
+| Direction | What happens |
+|---|---|
+| Memory → prompt | The opening uses real numbers ("Pichhle 30 din mein Steel Racks ke liye 12 enquiry, zyada tar Pune se, 4 abhi tak padhi nahi gayi"), plus a "What you already know" section and a "don't re-ask" rule |
+| Memory → timing | **Warm moment:** if the seller was active on another channel in the last 3h, slots in that window get ×1.08. **Executive spoke today:** VANI skips the day. **Callback from the last call:** the planner dials at that time |
+| Timing → memory | The "Best time to call" section of `seller.md`, reusable by executives and the WhatsApp bot |
+| Call → memory | VANI writes the outcome, summary and callback back to the timeline, and `seller.md` updates at once |
+
+**Which context signals change *when* to call?** Tested on 18,600 VANI dials to these sellers (`src/gc_validation.py`):
+
+| Signal | Result | Used? |
+|---|---|---|
+| Active on another channel ≤3h before the call | **+4.4 points pickup within the same seller** (95% CI +1.1 to +8.1, 639 sellers) | Yes, ×1.08 boost |
+| Active ≤60 min before | +1.1 points (CI −3.4 to +4.9): not significant | No |
+| WhatsApp pushes in the previous 24h | No drop in pickup, fewer "Not Interested" | Not counted as irritation |
+| Executive call in the previous 24h | Only 4 cases: can't be tested | Cautious rule: skip that day |
+| Seller's usual activity hour | Flat pickup | No |
+
+**Quality of `seller.md`** (all 5,000 sellers, as of 30 Sep; `src/gc_eval.py`):
+
+| Measure | Result |
+|---|---|
+| Size | median ~260 tokens (p95 ~350) |
+| Build time | ~23 ms |
+| Freshness | ~37 ms from write-back to an updated file |
+| Openings with real numbers | 16% of sellers (the rest fall back to the lead-type opening) |
+| Files with open threads | 23% |
+
+**Lookback is 90 days, with a 7-day "new" view.** At 90 days, 78% of sellers have their own activity and 64% of all events are covered. 30 days covers only 57% of sellers; 180 days doubles the file content for little extra coverage.
+
+**Limits:**
+- The personalised opening has no measured lift on meetings yet, because no past calls used it. The evidence is indirect: specific numbers fixed 26.3% vs 23.0% in transcripts. It needs an A/B test.
+- Coverage is the 5,000 sample sellers; everyone else gets the standard prompt.
+
 ## Recommendation on the 15-minute rule
 
 Today an unanswered call is redialled after a fixed 15 minutes. The data shows these redials do little, and repeated dials irritate sellers. **Replace the rule with:**
@@ -92,7 +139,10 @@ attempts + seller profile ──► features.py   leakage-free history features 
                               policy.py     candidate slots (48 h) → guardrails → best slot / stop
                               prompt_gen.py hook, tone, pace, language, objections → VANI prompt block
                               backtest.py   September replay + empirical validation
-                              app.py        dashboard (plan · backtest · 15-min rule · model)
+                              timeline.py   Global Context: one event timeline per GLID across channels
+                              seller_md.py  seller.md (memory) + timing signals + write-back
+                              gc_validation.py / gc_eval.py   context-signal tests, seller.md quality
+                              app.py        dashboard (plan + seller.md · backtest · 15-min rule · global context · model)
                               sarvam.py     speaks the opening via Sarvam Bulbul at the persona's pace
 ```
 
@@ -113,6 +163,7 @@ SARVAM_API_KEY=... .venv/bin/streamlit run app.py # dashboard (audio needs the k
 
 - The `BesTime to Call` CSVs are read from `../Aids to solve Problems/BesTime to Call/`. Override with `BTC_RAW_DIR`.
 - The persona files are read from `data/persona/`. Override with `BTC_PERSONA_DIR`.
+- The Global Context seller files are read from `data/gc/`. Override with `BTC_GC_DIR`.
 - Seller data is internal to IndiaMART: don't copy `data/` or `outputs/plans/` off premises.
 
 ## Outputs
@@ -125,3 +176,5 @@ SARVAM_API_KEY=... .venv/bin/streamlit run app.py # dashboard (audio needs the k
 | `outputs/retry_policy_grid.csv` | Trade-off grid for the stop rules |
 | `outputs/model_report.json` | AUC, calibration and feature importance |
 | `outputs/model_comparison.csv` | Model bake-off results |
+| `outputs/seller_md/*.md` | Sample seller.md files |
+| `outputs/gc_validation.json`, `outputs/gc_eval.json` | Context-signal tests and seller.md quality |

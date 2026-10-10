@@ -17,6 +17,11 @@ Guardrails derived from the Apr-Sep data keep the plan from irritating sellers:
   * STOP_P_MEETING  stop when even the best slot in the next 48 h is below this probability
   * Call Later      honour the time the seller asked for (dial 5 min early)
   * Not Interested / Meeting Fixed / do-not-call  -> stop the episode
+Global Context signals (optional, from seller.md; tested in gc_validation.py):
+  * Warm moment     seller active on another channel in the last 3 h -> slots inside that 3 h
+                    window get x1.08 (within-seller test: +4.4 pp pickup, 95% CI +1.1 to +8.1)
+  * Executive today an IndiaMART executive spoke to the seller in the last 24 h -> no VANI dial
+                    today (policy choice; too few cases in the data to test)
 """
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -109,7 +114,7 @@ def apply_guardrails(c, hist, attempt_no):
 
 
 def plan_next_call(model, hist, profile, now, attempt_no, lead_sent=None, bucket="PUA",
-                   callback_at=None, last_disposition=None, do_not_call=False):
+                   callback_at=None, last_disposition=None, do_not_call=False, signals=None):
     """Return the next action for one seller."""
     if do_not_call:
         return Plan("stop", "Seller asked not to be called.")
@@ -123,6 +128,7 @@ def plan_next_call(model, hist, profile, now, attempt_no, lead_sent=None, bucket
     c = build_candidates(hist, profile, now, attempt_no, lead_sent, bucket)
     c = score_candidates(model, c)
     c = apply_guardrails(c, hist, attempt_no)
+    c = apply_context(c, now, signals or {})
     if callback_at is not None:
         slot = max(callback_at - timedelta(minutes=5), now)
         near = c.iloc[[int((c.slot - slot).abs().argmin())]]
@@ -141,10 +147,34 @@ def plan_next_call(model, hist, profile, now, attempt_no, lead_sent=None, bucket
     else:
         best = allowed.sort_values("score", ascending=False).iloc[0]
         reason = (f"Best time-of-day score x retry-gap factor among allowed slots in the next {HORIZON_DAYS} days.")
+        if best.get("warm", False):
+            reason += " Seller was active on another channel in the last 3 h (warm moment, x1.08)."
+        if (signals or {}).get("exec_answered_24h"):
+            reason += " Skipped today: an IndiaMART executive already spoke to the seller."
         if best.p_meeting < STOP_P_MEETING:
             return Plan("stop", f"Best slot in 48h has P(meeting)={best.p_meeting:.1%} < {STOP_P_MEETING:.0%}; "
                                 "stop to save dials and avoid irritation.", ranked=c)
     return Plan("call", reason, best.slot.to_pydatetime(), float(best.p_meeting), float(best.p_answer), c)
+
+
+WARM_HOURS = 3
+WARM_FACTOR = 1.08
+
+
+def apply_context(c, now, signals):
+    """Global Context adjustments: warm-moment boost and 'executive already spoke today' block."""
+    c = c.copy()
+    c["warm"] = False
+    mins = signals.get("mins_since_activity")
+    if signals.get("warm") and mins is not None:
+        until = now + timedelta(minutes=WARM_HOURS * 60 - mins)
+        c["warm"] = c.slot <= until
+        c.loc[c.warm, "score"] *= WARM_FACTOR
+    if signals.get("exec_answered_24h"):
+        today = c.slot.dt.normalize() == pd.Timestamp(now).normalize()
+        c.loc[today & c.allowed, "blocked_reason"] = "executive already spoke to the seller today"
+        c.loc[today, "allowed"] = False
+    return c
 
 
 def score_candidates(model, c):

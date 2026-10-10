@@ -40,10 +40,19 @@
 
 9. **Conversation design.** From transcripts we matched the opening hook to the lead type (PIM: "paid services" fixed 26.9% vs 7.9% with a buyleads opening), and measured the cost of "busy", the buying signal of a price question, and the effect of an unclear identity line. Each instruction in the generated prompt block carries its evidence. We also tied the timing model into the conversation: when a seller is busy, VANI offers that seller's two best predicted windows as callback times. Finally we added live-adaptation rules to the prompt: irritated → apologise once and offer a callback, rushed → ask for the time directly, language switch → follow the seller, confused → simplify. The voice (speaker, pace) is chosen per seller before the call; the style adapts turn by turn.
 
-10. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
+10. **Global Context (Problem 2) integrated.** We combined 11 source files into one event timeline per seller (400k events, 5,000 sellers), with no raw message text, because enquiry replies contain phone numbers. From it we build a ~260-token `seller.md`. Then we tested which context signals should change *when* VANI calls, using the same within-seller method as before:
+   - Activity on another channel in the last 3h → +4.4 points pickup (95% CI +1.1 to +8.1). We use this as a small boost.
+   - Within 60 minutes alone, the effect wasn't significant.
+   - WhatsApp pushes don't irritate sellers.
+   - The seller's usual activity hour doesn't matter.
+   - Executive calls were too rare to test, so we kept a cautious "skip today" rule and labelled it as such.
+   The prompt now opens with real numbers and never re-asks what's known. VANI writes each call result back, and `seller.md` updates in ~37 ms, so a callback promised on the call is honoured by the planner.
+
+11. **Package.** The deliverables are the dashboard, sample plans for 6 contrasting sellers, the backtest report, the 15-minute-rule recommendation and the Sarvam agent prompt template.
 
 ## Limits and next steps
 
 - **The re-timing lift is a model estimate.** It is backed by the empirical quintile check, but it is not a randomised result. The next step is to A/B it with 10% of traffic (Problem 5's framework).
 - **Seller-level history is thin** (median 2 dials per seller). Seller-specific windows will sharpen as more history arrives.
 - **Freed dial capacity isn't credited** in the meeting numbers.
+- **The personalised `seller.md` opening has no measured lift yet.** It needs an A/B test. Global Context covers the 5,000 sample sellers only.

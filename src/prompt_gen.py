@@ -18,6 +18,7 @@ import pandas as pd
 from .config import WORK_DIR, PERSONA_DIR, OUT_DIR, TEST_START
 from .model import TimingModel
 from . import policy
+from . import seller_md as sm
 
 PLAN_DIR = OUT_DIR / "plans"
 PLAN_DIR.mkdir(exist_ok=True, parents=True)
@@ -232,6 +233,26 @@ def conversation_design(profile, persona, hist, bucket, attempt_no, windows, now
     return d
 
 
+def add_global_context(design, f):
+    """Use seller.md facts (Problem 2): real-number opening, what VANI already knows, no re-asking."""
+    hook = sm.personal_hook(f)
+    if hook:
+        design["opening_hook"] = (hook, "Real numbers from this seller's last 30 days (seller.md). "
+                                  + EVIDENCE["hook_enquiry"])
+    known = list(f["open_threads"])
+    if f["enquiries_30d"]:
+        known.append(f"{f['enquiries_30d']} enquiries in 30 days: {f['enquiry_products_30d']}; buyers from {f['enquiry_cities_30d']}.")
+    if f["last_conversations"]:
+        known.append("Last conversation: " + f["last_conversations"][0])
+    if f["sourcing_products"] or f["buylead_products"]:
+        known.append(f"Seller is also buying / sourcing: {f['sourcing_products'] or f['buylead_products']}.")
+    design["what_you_know"] = ("\n".join(f"  * {k}" for k in known) or "  * nothing new",
+                               "From seller.md (Global Context: enquiries, buyer calls, WhatsApp, past calls, executive calls).")
+    design["no_reask"] = ("Never ask for things listed above (location, products, whether they got enquiries, the callback "
+                          "time they already gave). Refer to them instead: 'aapne pichhli baar 5 baje bola tha'.",
+                          "Global Context goal: conversations resume without re-asking.")
+
+
 def build_prompt(glid, design, plan, windows, profile, persona):
     lines = [
         f"## Seller-specific instructions (GLID {glid})",
@@ -246,6 +267,9 @@ def build_prompt(glid, design, plan, windows, profile, persona):
         f"- If price is asked: {design['price_question'][0]}",
         f"- Time capture: {design['time_capture'][0]}",
     ]
+    if "what_you_know" in design:
+        lines.append(f"- What you already know about this seller:\n{design['what_you_know'][0]}")
+        lines.append(f"- Don't re-ask: {design['no_reask'][0]}")
     lines.append(f"- Live adaptation: {design['live_adaptation'][0]}")
     for k in ("existing_executive", "past_objections"):
         if k in design:
@@ -259,11 +283,17 @@ def generate(glid, now=None, write=True):
     hist, profile, persona = seller_context(glid, now)
     attempt_no, last_disp, callback, bucket = _episode_state(hist, now)
     lead_sent = now if attempt_no == 1 else None
+    signals = sm.timing_signals(glid, now)
+    if signals.get("callback_at") and not callback:          # callback promised on the last call (write-back)
+        callback = signals["callback_at"]
     plan = policy.plan_next_call(_model(), hist, profile, now, attempt_no, lead_sent=lead_sent,
                                  bucket=str(bucket or "PUA"), callback_at=callback, last_disposition=last_disp,
-                                 do_not_call=persona.get("do_not_call_requested") == 1)
+                                 do_not_call=persona.get("do_not_call_requested") == 1, signals=signals)
     windows = top_windows(plan.ranked) if not plan.ranked.empty else []
     design = conversation_design(profile, persona, hist, str(bucket or "PUA"), attempt_no, windows, now)
+    seller_md, facts = sm.build(glid, now, windows) if sm.has_context(glid) else (None, {})
+    if facts:
+        add_global_context(design, facts)
     prompt = build_prompt(glid, design, plan, windows, profile, persona)
     out = {
         "glid": int(glid), "as_of": now.isoformat(), "attempt_no": attempt_no, "last_disposition": last_disp,
@@ -276,10 +306,13 @@ def generate(glid, now=None, write=True):
                                  "max_attempts": policy.MAX_ATTEMPTS, "stop_below_p_meeting": policy.STOP_P_MEETING}},
         "how": {k: {"instruction": v[0], "reason": v[1]} for k, v in design.items()},
         "vani_prompt_block": prompt,
+        "seller_md": seller_md,
     }
     if write:
         json.dump(out, open(PLAN_DIR / f"{glid}.json", "w"), indent=2, default=str)
         (PLAN_DIR / f"{glid}.md").write_text(to_markdown(out))
+        if seller_md:
+            (sm.MD_DIR / f"{glid}.md").write_text(seller_md)
     return out, plan
 
 

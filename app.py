@@ -9,6 +9,7 @@ import streamlit as st
 from src.config import OUT_DIR
 from src import prompt_gen as pg
 from src import sarvam
+from src import seller_md as sm
 
 st.set_page_config(page_title="VANI Best Time to Call", layout="wide")
 st.title("VANI: Best Time to Call")
@@ -33,7 +34,8 @@ def warm():
 
 
 rep, mrep = report(), model_report()
-tab_plan, tab_bt, tab_rule, tab_model = st.tabs(["Seller call plan", "Backtest (Sept)", "15-minute rule", "Model"])
+tab_plan, tab_bt, tab_rule, tab_gc, tab_model = st.tabs(
+    ["Seller call plan", "Backtest (Sept)", "15-minute rule", "Global Context", "Model"])
 
 # ---------------------------------------------------------------- seller plan
 def render_plan():
@@ -78,6 +80,24 @@ def render_plan():
     for k, v in out["how"].items():
         st.markdown(f"**{k.replace('_', ' ').capitalize()}**: {v['instruction']}  \n<span style='color:gray'>why: {v['reason']}</span>",
                     unsafe_allow_html=True)
+    if out.get("seller_md"):
+        st.subheader("Seller memory: seller.md (Global Context)")
+        st.caption("What VANI knows before it speaks: built from enquiries, buyer calls, WhatsApp, buyleads, "
+                   "past VANI and executive calls. No raw message text or phone numbers.")
+        st.markdown(out["seller_md"])
+        with st.form("writeback"):
+            st.markdown("**Write back a call result** (VANI does this after every call; seller.md updates at once)")
+            c1, c2 = st.columns(2)
+            outcome = c1.selectbox("Outcome", ["Call Later / Busy", "Meeting Fixed", "Not Interested", "General (talked)"])
+            cb = c2.time_input("Callback time (if Call Later)", value=time(17, 0))
+            summary = st.text_input("One-line summary", "Seller was driving, asked to call back in the evening")
+            if st.form_submit_button("Write back"):
+                cb_at = datetime.combine(now.date(), cb) if outcome == "Call Later / Busy" else None
+                sm.writeback(int(glid), now, outcome, summary, cb_at)
+                st.rerun()
+    elif glid:
+        st.caption("This seller is outside the 5,000-seller Global Context sample, so VANI uses the standard prompt.")
+
     st.subheader("Prompt block for VANI")
     st.code(out["vani_prompt_block"], language="markdown")
     st.download_button("Download plan (.md)", pg.to_markdown(out), file_name=f"plan_{glid}.md")
@@ -141,6 +161,38 @@ with tab_bt:
     st.subheader("Stop-rule trade-off grid")
     g = pd.DataFrame(b["grid"])
     st.dataframe(g, width="stretch", hide_index=True)
+
+# ---------------------------------------------------------------- global context
+with tab_gc:
+    st.subheader("Global Context: memory across channels, feeding the call plan")
+    gv_path, ge_path = OUT_DIR / "gc_validation.json", OUT_DIR / "gc_eval.json"
+    if ge_path.exists():
+        ge = json.load(open(ge_path))
+        k = st.columns(4)
+        k[0].metric("seller.md size (median)", f"~{ge['compactness']['approx_tokens_median']} tokens")
+        k[1].metric("Build time", f"{ge['build_ms_median']} ms")
+        k[2].metric("Write-back -> updated file", f"{ge['freshness_ms_writeback_to_updated_file']} ms")
+        k[3].metric("Openings with real numbers", f"{ge['coverage']['real_number_opening']:.0%}")
+        st.caption("Lookback choice: share of sellers with activity, and of all events, inside each window")
+        st.dataframe(pd.DataFrame(ge["lookback"]), width="stretch", hide_index=True)
+    if gv_path.exists():
+        gv = json.load(open(gv_path))
+        st.subheader("Does other-channel activity change the best time to call?")
+        w60, w3 = gv["warm_moment_within_seller_60min"], gv["warm_moment_within_seller_3h"]
+        st.markdown(f"""
+* **Warm moment - used.** Same seller, called within 3 h of activity on another channel vs not:
+  **{w3['answer_diff_pp']:+} pp pickup** (95% CI {w3['answer_diff_ci95_pp'][0]} to {w3['answer_diff_ci95_pp'][1]}, {w3['sellers']} sellers).
+  Within 60 min alone: {w60['answer_diff_pp']:+} pp (CI {w60['answer_diff_ci95_pp'][0]} to {w60['answer_diff_ci95_pp'][1]}) - not significant.
+  The planner boosts slots inside the 3 h window by x1.08.
+* **WhatsApp pushes - not counted as irritation.** Sellers with IndiaMART WhatsApp messages in the previous 24 h did not pick up less.
+* **Executive spoke today - cautious rule.** Only {gv['exec_call_24h'][-1]['n'] if len(gv['exec_call_24h']) > 1 else 0} cases in the data, so untested; VANI skips that day.
+* **Usual activity hour - not used.** Pickup is flat whether we call at the seller's usual hour or not.""")
+        st.caption("Warm moment: raw and standardised rates by time since last activity")
+        st.dataframe(pd.DataFrame(gv["warm_moment"]), width="stretch", hide_index=True)
+    if WB := sm.WRITEBACK:
+        if WB.exists() and st.button("Clear demo write-backs"):
+            WB.unlink()
+            st.rerun()
 
 # ---------------------------------------------------------------- 15 min rule
 with tab_rule:
